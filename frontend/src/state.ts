@@ -29,7 +29,12 @@ export interface AppState {
   flexKind: FlexKind;
   month: string;
   length: number;
-  /** First and last allowed departure day of `month` (flex mode); 1 and 31 mean the whole month. */
+  /** Last month of a flexible search spanning several months; '' when it covers `month` alone. */
+  monthTo: string;
+  /**
+   * First and last allowed departure day (flex mode), counted from the 1st of `month`, so
+   * 35 is the 4th or 5th of the next month. Values past the span's end are clamped to it.
+   */
   departFrom: number;
   departTo: number;
   depart: string;
@@ -77,6 +82,45 @@ export function daysInMonth(month: string): number {
   return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
 }
 
+/** A departTo that always means "to the end of the last month". */
+export const END_OF_SPAN = 366;
+
+export function addMonths(month: string, count: number): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Date(Date.UTC(year, monthNumber - 1 + count, 1)).toISOString().slice(0, 7);
+}
+
+/** The months a flexible search covers, first to last (at most a year). */
+export function searchMonths(s: Pick<AppState, 'month' | 'monthTo'>): string[] {
+  const months = [s.month];
+  while (s.monthTo > months[months.length - 1] && months.length < 12) {
+    months.push(addMonths(months[months.length - 1], 1));
+  }
+  return months;
+}
+
+/** Number of days in the months a flexible search covers. */
+export function spanDays(s: Pick<AppState, 'month' | 'monthTo'>): number {
+  return searchMonths(s).reduce((sum, month) => sum + daysInMonth(month), 0);
+}
+
+/** YYYY-MM-DD of day `index` (1-based) counted from the 1st of `month`. */
+export function dateOfSpanDay(month: string, index: number): string {
+  const date = new Date(`${month}-01T00:00:00Z`);
+  date.setUTCDate(index);
+  return date.toISOString().slice(0, 10);
+}
+
+/** departFrom and departTo clamped to the span, so that 1 <= from <= to <= spanDays. */
+export function spanBounds(
+  s: Pick<AppState, 'month' | 'monthTo' | 'departFrom' | 'departTo'>,
+): { fromIndex: number; toIndex: number; total: number } {
+  const total = spanDays(s);
+  const fromIndex = Math.min(Math.max(1, s.departFrom), total);
+  const toIndex = Math.min(Math.max(fromIndex, s.departTo), total);
+  return { fromIndex, toIndex, total };
+}
+
 export interface DepartWindow {
   /** YYYY-MM-DD, inclusive. */
   from: string;
@@ -84,19 +128,16 @@ export interface DepartWindow {
 }
 
 /**
- * The flexible-dates departure window as dates, or null when it spans the whole month
- * (or the dates are exact). Days past the month's end are clamped to its last day.
+ * The flexible-dates departure window as dates, or null when it covers every day of the
+ * chosen months (or the dates are exact).
  */
 export function departWindow(
-  s: Pick<AppState, 'dateMode' | 'month' | 'departFrom' | 'departTo'>,
+  s: Pick<AppState, 'dateMode' | 'month' | 'monthTo' | 'departFrom' | 'departTo'>,
 ): DepartWindow | null {
   if (s.dateMode !== 'flex') return null;
-  const last = daysInMonth(s.month);
-  const fromDay = Math.min(Math.max(1, s.departFrom), last);
-  const toDay = Math.min(Math.max(fromDay, s.departTo), last);
-  if (fromDay <= 1 && toDay >= last) return null;
-  const day = (n: number) => `${s.month}-${String(n).padStart(2, '0')}`;
-  return { from: day(fromDay), to: day(toDay) };
+  const { fromIndex, toIndex, total } = spanBounds(s);
+  if (fromIndex <= 1 && toIndex >= total) return null;
+  return { from: dateOfSpanDay(s.month, fromIndex), to: dateOfSpanDay(s.month, toIndex) };
 }
 
 export function scopeFromState(from: FromState): OriginScope {
@@ -118,7 +159,7 @@ export function initialState(): AppState {
       type: 'anywhere', regions: [], countries: [], city: 'Paris', cityLat: 48.857, cityLon: 2.352, radiusKm: 600,
     },
     trip: 'round', dateMode: 'flex', flexKind: 'weekend', month, length: 5,
-    departFrom: 1, departTo: 31,
+    monthTo: '', departFrom: 1, departTo: END_OF_SPAN,
     depart: `${month}-12`, returnDate: `${month}-15`,
     adults: 1, children: 0, infants: 0, cabin: 'Economy',
     stops: 'any', maxPrice: null, airlines: [], maxDurationHours: null,

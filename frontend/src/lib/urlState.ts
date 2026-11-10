@@ -8,7 +8,7 @@
  * written because their defaults move with today's date.
  */
 import type { AppState } from '../state';
-import { upcomingMonths } from '../state';
+import { END_OF_SPAN, upcomingMonths } from '../state';
 import { DESTINATION_BY_IATA, HOME_BY_NAME, type Destination, type HomeCity } from '../data/places';
 import { COUNTRY_BY_CODE, countryCodeForName, normalizeRegions, REGION_BY_KEY } from '../data/regions';
 import { CURRENCY_RATES } from './format';
@@ -37,9 +37,10 @@ const ALLOWED: Partial<Record<string, (value: string) => boolean>> = {
   dateMode: v => v === 'flex' || v === 'exact',
   flexKind: v => v === 'weekend' || v === 'week' || v === 'custom',
   month: v => upcomingMonths().includes(v),
+  monthTo: v => upcomingMonths().includes(v),
   depart: isIsoDate,
-  departFrom: isDayOfMonth,
-  departTo: isDayOfMonth,
+  departFrom: isSpanDay,
+  departTo: isSpanDay,
   returnDate: isIsoDate,
   stops: v => v === 'any' || v === '0' || v === '1',
   sort: v => v in SORTERS,
@@ -65,8 +66,9 @@ function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
 }
 
-function isDayOfMonth(value: string): boolean {
-  return /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 31;
+/** A day counted from the 1st of the first month; see AppState.departFrom. */
+function isSpanDay(value: string): boolean {
+  return /^\d{1,3}$/.test(value) && Number(value) >= 1 && Number(value) <= END_OF_SPAN;
 }
 
 function paramName(key: keyof AppState): string {

@@ -4,8 +4,8 @@ import type { Destination } from '../data/places';
 import { addDays, formatDay, formatMonth } from '../lib/format';
 import type { Store } from '../state';
 import { OriginField, type AirportCounts } from './OriginPicker';
-import { daysInMonth, departWindow, upcomingMonths } from '../state';
-import { DualRange, Dropdown, Icon, OptionList, PrimaryButton } from './ui';
+import { dateOfSpanDay, daysInMonth, departWindow, END_OF_SPAN, searchMonths, spanBounds, upcomingMonths } from '../state';
+import { DualRange, Dropdown, Icon, OptionList, PrimaryButton, sliderPosition } from './ui';
 
 const CABINS = ['Economy', 'Premium economy', 'Business', 'First'] as const;
 
@@ -175,15 +175,45 @@ function DatesField({ store }: { store: Store }) {
   const months = useMemo(() => upcomingMonths(), []);
   const round = s.trip === 'round';
   const today = new Date().toISOString().slice(0, 10);
-  const lastDay = daysInMonth(s.month);
+  const span = searchMonths(s);
+  const firstMonth = span[0];
+  const lastMonth = span[span.length - 1];
+  const { fromIndex, toIndex, total } = spanBounds(s);
   const narrowed = departWindow(s);
-  const fromDay = Math.min(s.departFrom, lastDay);
-  const toDay = Math.min(Math.max(s.departTo, fromDay), lastDay);
-  const monthShort = formatMonth(s.month, 'short');
-  // "Weekend in November 2026", or "Weekend, 12–23 Nov" once the departure days are narrowed.
+  const spanShort = span.length > 1
+    ? `${formatMonth(firstMonth, 'short')} – ${formatMonth(lastMonth, 'short')}`
+    : formatMonth(firstMonth, 'short');
+  // "Weekend in November 2026", "Weekend in Nov – Jan", or "Weekend, 20 Nov – 5 Dec" once narrowed.
   const when = narrowed
-    ? `, ${fromDay === toDay ? fromDay : `${fromDay}–${toDay}`} ${monthShort}`
-    : ` in ${formatMonth(s.month)}`;
+    ? `, ${formatDayRange(narrowed.from, narrowed.to)}`
+    : ` in ${span.length > 1 ? spanShort : formatMonth(firstMonth)}`;
+
+  // Month chips pick a range the way a calendar does: the first tap picks one month,
+  // a second tap on another month stretches the search from one to the other.
+  const [anchor, setAnchor] = useState<string | null>(null);
+  useEffect(() => { if (s.popover !== 'dates') setAnchor(null); }, [s.popover]);
+  const pickMonth = (month: string) => {
+    if (anchor && month !== anchor) {
+      const [from, to] = anchor < month ? [anchor, month] : [month, anchor];
+      // Stretching forwards keeps a start day already chosen in the first month.
+      set({ month: from, monthTo: to, departFrom: from === s.month ? s.departFrom : 1, departTo: END_OF_SPAN });
+      setAnchor(null);
+    } else {
+      set({ month, monthTo: '', departFrom: 1, departTo: END_OF_SPAN });
+      setAnchor(month);
+    }
+  };
+  const monthHint = anchor ? 'Tap another month for a range'
+    : span.length > 1 ? 'Tap a month to start over' : 'Tap two months for a range';
+
+  // Month boundaries on the slider, and each month's name centred on its stretch of days.
+  let monthStart = 1;
+  const monthMarks = span.map(month => {
+    const mark = { month, start: monthStart, end: monthStart + daysInMonth(month) - 1 };
+    monthStart = mark.end + 1;
+    return mark;
+  });
+
   const value = s.dateMode === 'flex'
     ? !round ? `Any day${when}`
       : s.flexKind === 'weekend' ? `Weekend${when}`
@@ -230,37 +260,58 @@ function DatesField({ store }: { store: Store }) {
               )}
             </div>}
             <div className="control-group">
-              <span className="control-label">When</span>
+              <div className="range-head">
+                <span className="control-label">When</span>
+                <span className="subtle month-hint">{monthHint}</span>
+              </div>
               <div className="month-grid">
-                {months.map(month => (
-                  <button type="button" key={month} className={`chip month ${s.month === month ? 'is-active' : ''}`}
-                    onClick={() => set({ month })}>
-                    <span className="strong">{formatMonth(month, 'short')}</span>
-                    <span className="month-year">{month.slice(0, 4)}</span>
-                  </button>
-                ))}
+                {months.map(month => {
+                  const inSpan = month >= firstMonth && month <= lastMonth;
+                  const edge = span.length > 1 && (month === firstMonth || month === lastMonth);
+                  return (
+                    <button type="button" key={month} aria-pressed={inSpan}
+                      className={`chip month ${inSpan ? 'is-active' : ''} ${inSpan && span.length > 1 && !edge ? 'is-between' : ''}`}
+                      onClick={() => pickMonth(month)}>
+                      <span className="strong">{formatMonth(month, 'short')}</span>
+                      <span className="month-year">{month.slice(0, 4)}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="control-group">
               <div className="range-head">
                 <span className="control-label">Leave between</span>
                 <span className="day-range-value">
-                  {narrowed ? `${formatDay(narrowed.from)} – ${formatDay(narrowed.to)}` : `Any day in ${monthShort}`}
+                  {narrowed ? `${formatDay(narrowed.from)} – ${formatDay(narrowed.to)}` : `Any day in ${spanShort}`}
                 </span>
               </div>
-              <DualRange min={1} max={lastDay} low={fromDay} high={toDay}
+              <DualRange min={1} max={total} low={fromIndex} high={toIndex}
                 lowLabel="Earliest departure day" highLabel="Latest departure day"
-                // The month's last day means "to the end", so the range still fits a longer month.
-                onChange={(low, high) => set({ departFrom: low, departTo: high >= lastDay ? 31 : high })} />
-              <div className="range-scale">
-                <span>1 {monthShort}</span>
-                {narrowed && (
-                  <button type="button" className="link-button" onClick={() => set({ departFrom: 1, departTo: 31 })}>
-                    Whole month
-                  </button>
-                )}
-                <span>{lastDay} {monthShort}</span>
-              </div>
+                valueText={index => formatDay(dateOfSpanDay(firstMonth, index))}
+                ticks={monthMarks.slice(1).map(mark => mark.start - 0.5)}
+                // The last day means "to the end", so the range still fits if the months change length.
+                onChange={(low, high) => set({ departFrom: low, departTo: high >= total ? END_OF_SPAN : high })} />
+              {span.length > 1 ? (
+                <div className="span-scale">
+                  {monthMarks.map(mark => (
+                    <span key={mark.month} style={{ left: sliderPosition((mark.start + mark.end) / 2, 1, total) }}>
+                      {formatMonth(mark.month, 'short')}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="range-scale">
+                  <span>1 {spanShort}</span>
+                  <span>{total} {spanShort}</span>
+                </div>
+              )}
+              {narrowed && (
+                <button type="button" className="link-button whole-span"
+                  onClick={() => set({ departFrom: 1, departTo: END_OF_SPAN })}>
+                  {span.length > 1 ? 'Any day in these months' : 'Whole month'}
+                </button>
+              )}
             </div>
           </>
         ) : (
@@ -288,4 +339,13 @@ function DatesField({ store }: { store: Store }) {
       </div>
     </Dropdown>
   );
+}
+
+/** "12–23 Nov", "12 Nov", or "20 Nov – 5 Dec". */
+function formatDayRange(from: string, to: string): string {
+  const dayMonth = (date: string) => new Date(`${date}T00:00:00Z`)
+    .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  if (from === to) return dayMonth(from);
+  if (from.slice(0, 7) === to.slice(0, 7)) return `${Number(from.slice(8))}–${dayMonth(to)}`;
+  return `${dayMonth(from)} – ${dayMonth(to)}`;
 }

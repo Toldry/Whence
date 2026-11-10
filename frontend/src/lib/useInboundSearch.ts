@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fareSource, type InboundQuery, type InboundResponse } from '../api';
+import { fareSource, searchAcrossMonths, type InboundQuery, type InboundResponse } from '../api';
 
 export interface SearchStatus {
   response: InboundResponse | null;
@@ -26,7 +26,7 @@ export function useInboundSearch(query: InboundQuery | null): SearchStatus {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fareSource.searchInbound(query, controller.signal)
+    searchAcrossMonths(fareSource, query, controller.signal)
       .then(result => { setResponse(result); setLoading(false); })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;

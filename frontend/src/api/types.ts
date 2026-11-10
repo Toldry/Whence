@@ -17,7 +17,12 @@ export interface InboundQuery {
   flexKind: FlexKind;
   /** Trip length in days, used when flexKind is 'custom'. */
   length: number;
-  /** YYYY-MM-DD, optional, flex only: earliest and latest departure within `month`. */
+  /**
+   * YYYY-MM, optional, flex only: the last month of a search spanning several months.
+   * The API takes one month at a time, so searchAcrossMonths splits such a query.
+   */
+  monthTo?: string;
+  /** YYYY-MM-DD, optional, flex only: earliest and latest departure (within `month` for the API). */
   departFrom?: string;
   departTo?: string;
   /** YYYY-MM-DD, used when dateMode is 'exact'. */

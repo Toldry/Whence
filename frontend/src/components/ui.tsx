@@ -60,8 +60,20 @@ export function PrimaryButton({ onClick, children }: { onClick(): void; children
   return <button type="button" className="primary-button" onClick={onClick}>{children}</button>;
 }
 
+/** Diameter of a DualRange thumb, in px; keep in step with styles.css. */
+const THUMB_PX = 18;
+
+/**
+ * Where `value` sits along a range input of the full width, as a CSS length. A native
+ * thumb's centre travels from half a thumb in from each end, not from edge to edge.
+ */
+export function sliderPosition(value: number, min: number, max: number): string {
+  const fraction = max > min ? (value - min) / (max - min) : 0;
+  return `calc(${THUMB_PX / 2}px + (100% - ${THUMB_PX}px) * ${fraction.toFixed(4)})`;
+}
+
 /** Two thumbs on one track, for picking an inclusive [low, high] range of whole numbers. */
-export function DualRange({ min, max, low, high, onChange, lowLabel, highLabel }: {
+export function DualRange({ min, max, low, high, onChange, lowLabel, highLabel, valueText, ticks = [] }: {
   min: number;
   max: number;
   low: number;
@@ -69,18 +81,28 @@ export function DualRange({ min, max, low, high, onChange, lowLabel, highLabel }
   onChange(low: number, high: number): void;
   lowLabel: string;
   highLabel: string;
+  /** Read-out for screen readers, e.g. a date for a day index. */
+  valueText?(value: number): string;
+  /** Values to mark on the track, such as month boundaries. */
+  ticks?: number[];
 }) {
-  const span = Math.max(1, max - min);
-  const percent = (value: number) => ((value - min) / span) * 100;
   return (
     <div className="dual-range">
       <div className="dual-range-track" />
-      <div className="dual-range-fill" style={{ left: `${percent(low)}%`, right: `${100 - percent(high)}%` }} />
+      <div className="dual-range-fill" style={{
+        left: sliderPosition(low, min, max),
+        width: `calc((100% - ${THUMB_PX}px) * ${max > min ? ((high - low) / (max - min)).toFixed(4) : 0})`,
+      }} />
+      {ticks.map(tick => (
+        <div key={tick} className="dual-range-tick" style={{ left: sliderPosition(tick, min, max) }} />
+      ))}
       <input type="range" min={min} max={max} value={low} aria-label={lowLabel}
+        aria-valuetext={valueText?.(low)}
         // When both thumbs sit at the right end, the low one must be on top to be draggable.
         className={low >= max ? 'is-top' : ''}
         onChange={e => onChange(Math.min(Number(e.target.value), high), high)} />
       <input type="range" min={min} max={max} value={high} aria-label={highLabel}
+        aria-valuetext={valueText?.(high)}
         onChange={e => onChange(low, Math.max(Number(e.target.value), low))} />
     </div>
   );

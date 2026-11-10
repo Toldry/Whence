@@ -8,7 +8,7 @@ import {
   STALE_LIST_HOURS, type ResultContext, type ResultFilters,
 } from './lib/results';
 import { useInboundSearch } from './lib/useInboundSearch';
-import { departWindow, initialState, scopeFromState, upcomingMonths, type AppState, type PopoverKey, type StatePatch, type Store } from './state';
+import { departWindow, END_OF_SPAN, initialState, searchMonths, scopeFromState, upcomingMonths, type AppState, type PopoverKey, type StatePatch, type Store } from './state';
 import { TIERS } from './theme';
 import { FilterBar, type FilterRanges } from './components/FilterBar';
 import { MapPanel } from './components/MapPanel';
@@ -65,6 +65,7 @@ export function App() {
   const departDays = departWindow(s);
   const query: InboundQuery | null = s.destination ? {
     destination: s.destination.iata, trip: s.trip, dateMode: s.dateMode, month: s.month,
+    ...(s.monthTo > s.month ? { monthTo: s.monthTo } : {}),
     // Trip length means nothing one way, so ask for every departure day in the month.
     flexKind: s.trip === 'oneway' ? 'week' : s.flexKind, length: s.length, depart: s.depart, returnDate: s.returnDate,
     ...(departDays ? { departFrom: departDays.from, departTo: departDays.to } : {}),
@@ -231,13 +232,17 @@ function emptyStatus(
     };
   }
   const months = upcomingMonths();
-  const next = months[(months.indexOf(s.month) + 1) % months.length];
+  const span = searchMonths(s);
+  const next = months[(months.indexOf(span[span.length - 1]) + 1) % months.length];
   const suggestions: EmptySuggestion[] = [];
   if (departWindow(s)) {
-    suggestions.push({ label: `Any day in ${formatMonth(s.month)}`, note: 'whole month', pick: () => set({ departFrom: 1, departTo: 31 }) });
+    const label = span.length > 1
+      ? `Any day, ${formatMonth(span[0], 'short')} – ${formatMonth(span[span.length - 1], 'short')}`
+      : `Any day in ${formatMonth(s.month)}`;
+    suggestions.push({ label, note: span.length > 1 ? 'whole range' : 'whole month', pick: () => set({ departFrom: 1, departTo: END_OF_SPAN }) });
   }
   if (s.dateMode === 'exact') suggestions.push({ label: 'Use flexible dates', note: s.trip === 'round' ? 'any weekend' : 'any day', pick: () => set({ dateMode: 'flex' }) });
-  suggestions.push({ label: `Try ${formatMonth(next)}`, note: 'next month', pick: () => set({ dateMode: 'flex', month: next }) });
+  suggestions.push({ label: `Try ${formatMonth(next)}`, note: 'next month', pick: () => set({ dateMode: 'flex', month: next, monthTo: '', departFrom: 1, departTo: END_OF_SPAN }) });
   if (s.trip === 'round' && (s.flexKind !== 'custom' || s.dateMode === 'exact')) {
     suggestions.push({ label: 'Any trip length', note: '1–31 days', pick: () => set({ dateMode: 'flex', flexKind: 'custom', length: 7 }) });
   }
