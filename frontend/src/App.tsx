@@ -14,6 +14,7 @@ import { MapPanel } from './components/MapPanel';
 import { ResultsList, type EmptySuggestion, type ListStatus } from './components/ResultsList';
 import { SearchPanel } from './components/SearchPanel';
 import { Dropdown, Icon } from './components/ui';
+import { BrandMark } from './components/BrandMark';
 
 function useStore(): Store {
   const [state, setState] = useState<AppState>(initialState);
@@ -111,7 +112,7 @@ export function App() {
     <div className={`app view-${s.mobileView}`}>
       <header className="app-header">
         <div className="brand">
-          <div className="brand-mark"><div /></div>
+          <BrandMark />
           <span className="brand-name">whence</span>
           {usingMockData && <span className="mock-badge" title="Sample prices generated in your browser, not real fares.">demo data</span>}
         </div>
