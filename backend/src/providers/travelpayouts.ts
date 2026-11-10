@@ -20,6 +20,12 @@ import type { ReferenceData } from './reference-data.ts';
  *  - per origin (unique=true / group_by=directions): the cheapest fare of the
  *    month for every origin (LIS, Feb 2027: 119 origins one-way, 88 round trip).
  * The union keeps several dates for busy origins and still reaches every origin.
+ *
+ * The per-origin grouping keeps only each origin's cheapest fare, which is often
+ * one with stops, so a pricier nonstop on the same route never comes back (MAD-GUA,
+ * Nov 2026: per-origin gave a $606 one-stop and hid an $1,097 Iberia nonstop).
+ * prices_for_dates is therefore also called with direct=true, in both groupings,
+ * so the nonstop filter has every cached nonstop to work with.
  */
 export interface TravelpayoutsOptions {
   token: string;
@@ -71,7 +77,9 @@ export class TravelpayoutsProvider implements FareProvider {
     const markets = this.marketsFor(query.destination);
 
     const calls = markets.flatMap((market) => [false, true].flatMap((perOrigin) => [
-      this.fetchPricesForDates(query, market, perOrigin, signal).then((rows) => ({ kind: 'dates' as const, rows })),
+      ...[false, true].map((directOnly) =>
+        this.fetchPricesForDates(query, market, perOrigin, directOnly, signal)
+          .then((rows) => ({ kind: 'dates' as const, rows }))),
       this.fetchLatestPrices(query, market, perOrigin, signal).then((rows) => ({ kind: 'latest' as const, rows })),
     ]));
     const settled = await Promise.allSettled(calls);
@@ -186,11 +194,13 @@ export class TravelpayoutsProvider implements FareProvider {
     return { departureAt: query.month!, returnAt: null };
   }
 
-  private async fetchPricesForDates(query: InboundQuery, market: string, perOrigin: boolean, signal?: AbortSignal) {
+  private async fetchPricesForDates(
+    query: InboundQuery, market: string, perOrigin: boolean, directOnly: boolean, signal?: AbortSignal,
+  ) {
     const { departureAt, returnAt } = this.dateParams(query);
     const params: Record<string, string> = {
       destination: query.destination, departure_at: departureAt,
-      one_way: String(query.trip === 'oneway'), direct: 'false', unique: String(perOrigin),
+      one_way: String(query.trip === 'oneway'), direct: String(directOnly), unique: String(perOrigin),
       sorting: 'price', currency: this.options.currency.toLowerCase(), market,
       limit: String(this.options.pageSize),
     };

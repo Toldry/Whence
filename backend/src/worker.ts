@@ -22,7 +22,7 @@ function appFor(env: WorkerEnv) {
   const config = loadConfig(vars);
   const cache = kv
     ? new KvCache<InboundResult>({
-      kv, prefix: 'inbound:v1:',
+      kv, prefix: 'inbound:v2:',
       ttlMs: config.cache.ttlMinutes * 60_000,
       staleMs: config.cache.staleHours * 3_600_000,
     })

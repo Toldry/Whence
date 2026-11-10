@@ -59,10 +59,12 @@ test('merges both endpoints into contract fares with metadata', async () => {
   const provider = new TravelpayoutsProvider({ token: 't', marker: '12345', referenceData: reference, fetchImpl: impl });
   const result = await provider.searchInbound(query);
 
-  // Each endpoint per day and per origin.
-  assert.equal(calls.length, 4);
+  // Each endpoint per day and per origin; prices_for_dates also nonstop-only.
+  assert.equal(calls.length, 6);
   const datesCalls = calls.filter((c) => c.pathname.endsWith('prices_for_dates'));
-  assert.deepEqual(datesCalls.map((c) => c.searchParams.get('unique')).sort(), ['false', 'true']);
+  assert.deepEqual(
+    datesCalls.map((c) => `${c.searchParams.get('unique')}/${c.searchParams.get('direct')}`).sort(),
+    ['false/false', 'false/true', 'true/false', 'true/true']);
   const latestCalls = calls.filter((c) => c.pathname.endsWith('get_latest_prices'));
   assert.deepEqual(latestCalls.map((c) => c.searchParams.get('group_by')).sort(), ['dates', 'directions']);
   const datesCall = datesCalls[0]!;
@@ -117,8 +119,8 @@ test('reads further pages only while pages come back full', async () => {
   });
   const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl, pageSize: 2, maxPages: 5 });
   await provider.searchInbound(query);
-  // Two pages for each of the per-day and per-origin calls.
-  assert.equal(calls.filter((c) => c.pathname.endsWith('prices_for_dates')).length, 4);
+  // Two pages for each of the four prices_for_dates calls.
+  assert.equal(calls.filter((c) => c.pathname.endsWith('prices_for_dates')).length, 8);
 });
 
 test('exact round trips ask for the return date', async () => {
