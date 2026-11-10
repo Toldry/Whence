@@ -78,8 +78,8 @@ export function SearchPanel({ store, countries, matchCount }: {
       </div>
 
       <div className="search-fields">
-        <DestinationField store={store} />
         <FromField store={store} countries={countries} matchCount={matchCount} />
+        <DestinationField store={store} />
         <DatesField store={store} />
       </div>
     </section>
@@ -253,7 +253,8 @@ function DatesField({ store }: { store: Store }) {
   const round = s.trip === 'round';
   const today = new Date().toISOString().slice(0, 10);
   const value = s.dateMode === 'flex'
-    ? s.flexKind === 'weekend' ? `Weekend in ${formatMonth(s.month)}`
+    ? !round ? `Any day in ${formatMonth(s.month)}`
+      : s.flexKind === 'weekend' ? `Weekend in ${formatMonth(s.month)}`
       : s.flexKind === 'week' ? `A week in ${formatMonth(s.month)}`
         : `${s.length} ${s.length === 1 ? 'day' : 'days'} in ${formatMonth(s.month)}`
     : round ? `${formatDay(s.depart)} – ${formatDay(s.returnDate)}` : formatDay(s.depart);
@@ -280,7 +281,7 @@ function DatesField({ store }: { store: Store }) {
         </div>
         {s.dateMode === 'flex' ? (
           <>
-            <div className="control-group">
+            {round && <div className="control-group">
               <span className="control-label">How long</span>
               <div className="chip-row">
                 {([['weekend', 'A weekend'], ['week', 'A week'], ['custom', 'Set length']] as const).map(([key, label]) => (
@@ -295,7 +296,7 @@ function DatesField({ store }: { store: Store }) {
                   <span className="range-value">{s.length} {s.length === 1 ? 'day' : 'days'}</span>
                 </label>
               )}
-            </div>
+            </div>}
             <div className="control-group">
               <span className="control-label">When</span>
               <div className="month-grid">

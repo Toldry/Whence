@@ -3,7 +3,7 @@ import { usingMockData, type InboundQuery } from './api';
 import { DESTINATION_BY_IATA, HOME_BY_NAME } from './data/places';
 import { CURRENCY_NAMES, CURRENCY_RATES, currencySymbol, formatAge, formatMoney, formatMonth } from './lib/format';
 import {
-  assignTiers, computeRows, fareOptions, SORTERS,
+  assignTiers, computeRows, fareOptions, SORTERS, tierForBin,
   STALE_LIST_HOURS, type ResultContext, type ResultFilters,
 } from './lib/results';
 import { useInboundSearch } from './lib/useInboundSearch';
@@ -49,7 +49,8 @@ export function App() {
 
   const query: InboundQuery | null = s.destination ? {
     destination: s.destination.iata, trip: s.trip, dateMode: s.dateMode, month: s.month,
-    flexKind: s.flexKind, length: s.length, depart: s.depart, returnDate: s.returnDate,
+    // Trip length means nothing one way, so ask for every departure day in the month.
+    flexKind: s.trip === 'oneway' ? 'week' : s.flexKind, length: s.length, depart: s.depart, returnDate: s.returnDate,
   } : null;
   const search = useInboundSearch(query);
 
@@ -74,7 +75,7 @@ export function App() {
   };
   const sortKey = s.sort === 'total' && !context.home ? 'price' : s.sort;
   const rows = computeRows(context, filters).sort(SORTERS[sortKey]);
-  const thresholds = assignTiers(rows);
+  const binStarts = assignTiers(rows);
   const totalFares = context.response?.fares.length ?? 0;
 
   const status: ListStatus = !s.destination ? { kind: 'no-destination' }
@@ -95,12 +96,10 @@ export function App() {
     ? `${ageNote}. The fare service didn’t respond, so this is an older saved answer.` : ageNote;
   const medianAge = knownAges.length ? knownAges[Math.floor(knownAges.length / 2)] : 0;
 
-  const ranges = filterRanges(context);
-  const legend = rows.length
-    ? [rows.reduce((m, r) => Math.min(m, r.value), Infinity), ...thresholds].map((v, i) => ({
-      color: TIERS[i].bd, label: money(v) + (i ? '+' : ''),
-    }))
-    : [];
+  const ranges = filterRanges(context, filters);
+  const legend = binStarts.map((v, i) => ({
+    color: TIERS[tierForBin(i, binStarts.length)].bd, label: money(v) + (i ? '+' : ''),
+  }));
   const countries = [...new Set(Object.values(context.response?.airports ?? {})
     .filter(a => a.iata !== s.destination?.iata).map(a => a.country))].sort();
   const scopeMatchCount = status.kind === 'loading' || !s.destination ? null : rows.length;
@@ -160,9 +159,12 @@ export function App() {
   );
 }
 
-function filterRanges(ctx: ResultContext): FilterRanges {
+function filterRanges(ctx: ResultContext, filters: ResultFilters): FilterRanges {
   const options = fareOptions(ctx);
-  const priceMax = Math.max(50, Math.ceil(Math.max(0, ...options.map(o => o.flight)) / 10) * 10);
+  // The price slider tops out at the dearest row the other filters still allow,
+  // so with "Nonstop only" on it does not stretch to a 3-stop fare nobody can see.
+  const pricedRows = computeRows(ctx, { ...filters, maxPrice: null });
+  const priceMax = Math.max(50, Math.ceil(Math.max(0, ...pricedRows.map(r => r.flight)) / 10) * 10);
   const durationMax = Math.max(2, Math.ceil(Math.max(0, ...options.map(o => o.durationMinutes)) / 60));
   const airlineFrom: Record<string, number> = {};
   for (const o of options) {
@@ -199,9 +201,9 @@ function emptyStatus(
   const months = upcomingMonths();
   const next = months[(months.indexOf(s.month) + 1) % months.length];
   const suggestions: EmptySuggestion[] = [];
-  if (s.dateMode === 'exact') suggestions.push({ label: 'Use flexible dates', note: 'any weekend', pick: () => set({ dateMode: 'flex' }) });
+  if (s.dateMode === 'exact') suggestions.push({ label: 'Use flexible dates', note: s.trip === 'round' ? 'any weekend' : 'any day', pick: () => set({ dateMode: 'flex' }) });
   suggestions.push({ label: `Try ${formatMonth(next)}`, note: 'next month', pick: () => set({ dateMode: 'flex', month: next }) });
-  if (s.flexKind !== 'custom' || s.dateMode === 'exact') {
+  if (s.trip === 'round' && (s.flexKind !== 'custom' || s.dateMode === 'exact')) {
     suggestions.push({ label: 'Any trip length', note: '1–31 days', pick: () => set({ dateMode: 'flex', flexKind: 'custom', length: 7 }) });
   }
   return {

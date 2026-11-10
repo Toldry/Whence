@@ -24,6 +24,7 @@ export const SORT_LABELS: Record<SortKey, [string, string]> = {
   total: ['Total cost', 'Total trip cost'],
   price: ['Price', 'Flight price'],
   duration: ['Duration', 'Flight duration'],
+  date: ['Date', 'Departure date, earliest first'],
   fresh: ['Freshest', 'Most recently found'],
 };
 

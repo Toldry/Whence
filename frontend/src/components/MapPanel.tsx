@@ -76,8 +76,8 @@ export function MapPanel({ store, rows, status, legend, priceCaption }: {
         <div className="legend">
           <div className="legend-head"><span>{home ? 'Total trip cost' : 'Flight price'}</span><span className="faint">cheaper → pricier</span></div>
           <div className="legend-scale">
-            {legend.map(l => (
-              <div key={l.label} className="legend-step"><div className="legend-swatch" style={{ background: l.color }} /><span>{l.label}</span></div>
+            {legend.map((l, i) => (
+              <div key={i} className="legend-step"><div className="legend-swatch" style={{ background: l.color }} /><span>{l.label}</span></div>
             ))}
           </div>
         </div>

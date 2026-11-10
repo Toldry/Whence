@@ -13,7 +13,7 @@ export type OriginScope =
   | { type: 'near'; city: string; radiusKm: number };
 
 export type StopsFilter = 'any' | '0' | '1';
-export type SortKey = 'total' | 'price' | 'duration' | 'fresh';
+export type SortKey = 'total' | 'price' | 'duration' | 'date' | 'fresh';
 
 export const CABIN_MULTIPLIER: Record<string, number> = {
   Economy: 1, 'Premium economy': 1.6, Business: 3.1, First: 5.2,
@@ -140,14 +140,30 @@ export function computeRows(ctx: ResultContext, filters: ResultFilters): OriginR
   return rows;
 }
 
-/** Quintile thresholds over row values; returns them for the legend. */
+const PALETTE_SIZE = 5;
+
+/** Palette slot for price bin `bin` of `binCount`: cheapest is always green, dearest always red. */
+export function tierForBin(bin: number, binCount: number): number {
+  return binCount <= 1 ? 0 : Math.round(bin * (PALETTE_SIZE - 1) / (binCount - 1));
+}
+
+/**
+ * Splits row values into up to five quintile bins and sets each row's palette tier.
+ * Returns the bins' lower bounds, cheapest first. Thresholds that repeat or that equal
+ * the cheapest value are merged, so the bins and the legend always rise strictly.
+ */
 export function assignTiers(rows: OriginRow[]): number[] {
   const values = rows.map(r => r.value).sort((a, b) => a - b);
   if (!values.length) return [];
   const quantile = (p: number) => values[Math.min(values.length - 1, Math.floor(p * values.length))];
-  const thresholds = [quantile(0.2), quantile(0.4), quantile(0.6), quantile(0.8)];
-  for (const row of rows) row.tier = thresholds.filter(t => row.value >= t).length;
-  return thresholds;
+  const thresholds: number[] = [];
+  for (const t of [quantile(0.2), quantile(0.4), quantile(0.6), quantile(0.8)]) {
+    // Compare whole euros so two bins never show the same legend label.
+    if (Math.round(t) > Math.round(thresholds.at(-1) ?? values[0])) thresholds.push(t);
+  }
+  const binCount = thresholds.length + 1;
+  for (const row of rows) row.tier = tierForBin(thresholds.filter(t => row.value >= t).length, binCount);
+  return [values[0], ...thresholds];
 }
 
 const UNKNOWN_AGE = Number.POSITIVE_INFINITY;
@@ -155,6 +171,7 @@ export const SORTERS: Record<SortKey, (a: OriginRow, b: OriginRow) => number> = 
   total: (a, b) => a.total - b.total,
   price: (a, b) => a.flight - b.flight,
   duration: (a, b) => a.durationMinutes - b.durationMinutes,
+  date: (a, b) => (Date.parse(a.fare.departure_at) - Date.parse(b.fare.departure_at)) || a.flight - b.flight,
   fresh: (a, b) => (a.ageHours ?? UNKNOWN_AGE) - (b.ageHours ?? UNKNOWN_AGE),
 };
 

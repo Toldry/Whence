@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { InboundResponse } from '../src/api/types';
-import { computeRows, type ResultContext, type ResultFilters } from '../src/lib/results';
+import {
+  assignTiers, computeRows, SORTERS, tierForBin,
+  type OriginRow, type ResultContext, type ResultFilters,
+} from '../src/lib/results';
 import { HOME_BY_NAME, MOCK_AIRPORTS } from '../src/data/places';
 
 const airport = (iata: string) => MOCK_AIRPORTS.find(a => a.iata === iata)!;
@@ -49,5 +52,41 @@ describe('computeRows', () => {
     const geneva = computeRows(ctx({ cabin: 'Business', travellers: { adults: 2, children: 0, infants: 0 } }), noFilters)
       .find(r => r.airport.iata === 'GVA')!;
     expect(geneva.flight).toBeCloseTo(64 * 3.1 * 2);
+  });
+});
+
+describe('assignTiers', () => {
+  const rowsWith = (values: number[]) =>
+    values.map(value => ({ value, tier: -1 })) as unknown as OriginRow[];
+
+  it('merges repeated thresholds so bins rise strictly', () => {
+    const rows = rowsWith([25, 25, 25, 25, 28, 28, 28, 45, 66, 95]);
+    const starts = assignTiers(rows);
+    expect(starts).toEqual([...new Set(starts)]);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+    expect(starts[0]).toBe(25);
+  });
+
+  it('keeps tiers monotonic in price, from green to red', () => {
+    const rows = rowsWith([25, 25, 25, 25, 28, 28, 28, 45, 66, 95]);
+    assignTiers(rows);
+    const sorted = [...rows].sort((a, b) => a.value - b.value);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i].tier).toBeGreaterThanOrEqual(sorted[i - 1].tier);
+    expect(sorted[0].tier).toBe(0);
+    expect(sorted.at(-1)!.tier).toBe(4);
+  });
+
+  it('maps bins onto the palette ends', () => {
+    expect(tierForBin(0, 3)).toBe(0);
+    expect(tierForBin(2, 3)).toBe(4);
+    expect(tierForBin(0, 1)).toBe(0);
+  });
+});
+
+describe('date sort', () => {
+  it('puts the earliest departure first', () => {
+    const row = (departure_at: string, flight: number) => ({ fare: { departure_at }, flight }) as unknown as OriginRow;
+    const rows = [row('2026-11-20T08:00:00Z', 10), row('2026-11-14T08:00:00Z', 90), row('2026-11-14T08:00:00Z', 50)];
+    expect(rows.sort(SORTERS.date).map(r => r.flight)).toEqual([50, 90, 10]);
   });
 });
