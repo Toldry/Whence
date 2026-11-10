@@ -1,6 +1,6 @@
 /**
  * Static place data the UI needs before any search: destinations for the "To" field,
- * home cities for the ground-transport estimate, and how countries group into regions.
+ * and home cities for the ground-transport estimate. Countries and regions are in regions.ts.
  * Origin airports come from the fare source's `airports` map, so this list is only a
  * fallback and the mock's seed data.
  */
@@ -22,36 +22,6 @@ export interface HomeCity {
   country: string;
   lat: number;
   lon: number;
-}
-
-export const REGIONS: Record<string, string> = {
-  europe: 'Europe',
-  iberia: 'Iberia',
-  british: 'British Isles',
-  western: 'Western Europe',
-  central: 'Central Europe',
-  nordic: 'Nordics',
-  southern: 'Southern Europe',
-  na: 'North America',
-};
-
-const REGION_BY_COUNTRY: Record<string, string> = {
-  Spain: 'iberia', Portugal: 'iberia',
-  'United Kingdom': 'british', Ireland: 'british',
-  France: 'western', Belgium: 'western', Netherlands: 'western', Luxembourg: 'western',
-  Switzerland: 'central', Germany: 'central', Austria: 'central', Czechia: 'central',
-  Poland: 'central', Hungary: 'central', Slovakia: 'central',
-  Denmark: 'nordic', Sweden: 'nordic', Norway: 'nordic', Finland: 'nordic', Iceland: 'nordic',
-  Italy: 'southern', Greece: 'southern', 'Türkiye': 'southern', Malta: 'southern', Croatia: 'southern',
-  'United States': 'na', Canada: 'na',
-};
-
-export function regionOfCountry(country: string): string | undefined {
-  return REGION_BY_COUNTRY[country];
-}
-
-export function isNorthAmerica(country: string): boolean {
-  return REGION_BY_COUNTRY[country] === 'na';
 }
 
 const airport = (

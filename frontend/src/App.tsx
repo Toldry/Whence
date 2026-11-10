@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usingMockData, type InboundQuery } from './api';
+import { usingMockData, type InboundQuery, type InboundResponse } from './api';
+import { countryCodeOf } from './data/regions';
 import { DESTINATION_BY_IATA } from './data/places';
 import { CURRENCY_NAMES, CURRENCY_RATES, currencySymbol, formatAge, formatMoney, formatMonth } from './lib/format';
 import {
@@ -13,6 +14,7 @@ import { FilterBar, type FilterRanges } from './components/FilterBar';
 import { MapPanel } from './components/MapPanel';
 import { ResultsList, type EmptySuggestion, type ListStatus } from './components/ResultsList';
 import { SearchPanel } from './components/SearchPanel';
+import type { AirportCounts } from './components/OriginPicker';
 import { Dropdown, Icon } from './components/ui';
 import { BrandMark } from './components/BrandMark';
 import { stateFromParams, urlForState } from './lib/urlState';
@@ -113,8 +115,7 @@ export function App() {
   const legend = binStarts.map((v, i) => ({
     color: TIERS[tierForBin(i, binStarts.length)].bd, label: money(v) + (i ? '+' : ''),
   }));
-  const countries = [...new Set(Object.values(context.response?.airports ?? {})
-    .filter(a => a.iata !== s.destination?.iata).map(a => a.country))].sort();
+  const airportCounts = useMemo(() => countAirportsByCountry(context.response, s.destination?.iata), [context.response, s.destination?.iata]);
   const scopeMatchCount = status.kind === 'loading' || !s.destination ? null : rows.length;
   const destinationPicks = ['LIS', 'OPO', 'BCN', 'FCO', 'KEF'].map(iata => DESTINATION_BY_IATA[iata]).map(d => ({
     label: `${d.city} (${d.iata})`, pick: () => set({ destination: d }),
@@ -145,7 +146,7 @@ export function App() {
       </header>
 
       <div className="search-area">
-        <SearchPanel store={store} countries={countries} matchCount={scopeMatchCount} />
+        <SearchPanel store={store} airportCounts={airportCounts} matchCount={scopeMatchCount} />
       </div>
       <FilterBar store={store} ranges={ranges} />
 
@@ -170,6 +171,19 @@ export function App() {
       {s.popover && s.popover !== 'to' && <div className="popover-scrim" onClick={store.closePopover} />}
     </div>
   );
+}
+
+/** Origin airports with at least one fare, per country code; null until a search has answered. */
+function countAirportsByCountry(response: InboundResponse | null, destination?: string): AirportCounts {
+  if (!response) return null;
+  const withFares = new Set(response.fares.map(fare => fare.origin));
+  const counts: Record<string, number> = {};
+  for (const airport of Object.values(response.airports)) {
+    if (airport.iata === destination || !withFares.has(airport.iata)) continue;
+    const code = countryCodeOf(airport);
+    if (code) counts[code] = (counts[code] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function filterRanges(ctx: ResultContext, filters: ResultFilters): FilterRanges {

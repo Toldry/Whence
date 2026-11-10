@@ -9,7 +9,8 @@
  */
 import type { AppState } from '../state';
 import { upcomingMonths } from '../state';
-import { DESTINATION_BY_IATA, HOME_BY_NAME, REGIONS, type Destination, type HomeCity } from '../data/places';
+import { DESTINATION_BY_IATA, HOME_BY_NAME, type Destination, type HomeCity } from '../data/places';
+import { COUNTRY_BY_CODE, countryCodeForName, normalizeRegions, REGION_BY_KEY } from '../data/regions';
 import { CURRENCY_RATES } from './format';
 import { SORTERS } from './results';
 
@@ -41,7 +42,16 @@ const ALLOWED: Partial<Record<string, (value: string) => boolean>> = {
   currency: v => v in CURRENCY_RATES,
   mobileView: v => v === 'list' || v === 'map',
   'from.type': v => ['anywhere', 'region', 'country', 'near'].includes(v),
-  'from.region': v => v in REGIONS,
+  // Checked item by item for list fields.
+  'from.regions': v => v in REGION_BY_KEY,
+  'from.countries': v => v in COUNTRY_BY_CODE,
+};
+
+/** Region keys that links made before the UN regions used, mapped to their nearest match. */
+const LEGACY_REGIONS: Record<string, string[]> = {
+  europe: ['europe'], iberia: ['southern-europe'], british: ['northern-europe'], western: ['western-europe'],
+  central: ['western-europe', 'eastern-europe'], nordic: ['northern-europe'], southern: ['southern-europe'],
+  na: ['northern-america'],
 };
 
 const DESTINATION_EXTRA = ['city', 'country', 'airport', 'lat', 'lon'] as const;
@@ -136,7 +146,9 @@ export function stateToParams(state: AppState, defaults: AppState): URLSearchPar
       const fallbackObject: Record<string, unknown> = isPlainObject(fallback) ? fallback : {};
       for (const [child, childValue] of Object.entries(value)) {
         if (sameValue(childValue, fallbackObject[child])) continue;
-        params.set(nestedName(name, child), encodeScalar(childValue));
+        // Lists inside an object are comma-joined: fromCountries=ES,PT.
+        const encoded = Array.isArray(childValue) ? childValue.join(',') : encodeScalar(childValue);
+        params.set(nestedName(name, child), encoded);
       }
     } else {
       params.set(name, encodeScalar(value));
@@ -179,6 +191,23 @@ function homeFromParams(params: URLSearchParams, name: string): HomeCity | undef
   return HOME_BY_NAME[homeName];
 }
 
+/**
+ * Older links carried one region key (fromRegion=nordic), one country name (fromCountry=Spain)
+ * or a preset city name alone (fromCity=Madrid).
+ */
+function applyLegacyFrom(params: URLSearchParams, from: Record<string, unknown>): void {
+  const region = params.get('fromRegion');
+  if (region && !params.has('fromRegions') && LEGACY_REGIONS[region]) {
+    from.regions = normalizeRegions(LEGACY_REGIONS[region]);
+  }
+  const country = params.get('fromCountry');
+  const code = country ? countryCodeForName(country) : undefined;
+  if (code && !params.has('fromCountries')) from.countries = [code];
+  // Before any city could be picked, "near a city" named one of the preset homes.
+  const preset = HOME_BY_NAME[params.get('fromCity') ?? ''];
+  if (preset && !params.has('fromCityLat')) Object.assign(from, { cityLat: preset.lat, cityLon: preset.lon });
+}
+
 /** Returns the defaults with every valid param from the URL applied. Bad params are skipped. */
 export function stateFromParams(params: URLSearchParams, defaults: AppState): AppState {
   const next: Record<string, unknown> = { ...defaults };
@@ -200,9 +229,15 @@ export function stateFromParams(params: URLSearchParams, defaults: AppState): Ap
       for (const [child, childFallback] of Object.entries(fallback)) {
         const raw = params.get(nestedName(name, child));
         if (raw === null) continue;
+        if (Array.isArray(childFallback)) {
+          const allowed = ALLOWED[`${key}.${child}`] ?? (() => true);
+          merged[child] = raw.split(',').map(v => v.trim()).filter(v => v && allowed(v));
+          continue;
+        }
         const decoded = decodeScalar(raw, childFallback, `${key}.${child}`);
         if (decoded !== undefined) merged[child] = decoded;
       }
+      if (key === 'from') applyLegacyFrom(params, merged);
       next[key] = merged;
     } else {
       const raw = params.get(name);
@@ -216,6 +251,7 @@ export function stateFromParams(params: URLSearchParams, defaults: AppState): Ap
 
 /** The current page URL with the state's query string, keeping path and hash. */
 export function urlForState(state: AppState, defaults: AppState, location: Location): string {
-  const query = stateToParams(state, defaults).toString();
+  // Commas are legal in a query string; keep list params readable (fromCountries=ES,PT).
+  const query = stateToParams(state, defaults).toString().replace(/%2C/g, ',');
   return location.pathname + (query ? `?${query}` : '') + location.hash;
 }

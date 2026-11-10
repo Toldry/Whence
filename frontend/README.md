@@ -27,6 +27,11 @@ $env:VITE_API_BASE="http://localhost:8787"; npm run dev
 
 Other scripts: `npm run build`, `npm test`, `npm run typecheck`.
 
+The "From" picker lists every country with an airport, grouped by UN geoscheme (M49)
+subregion. That list lives in `src/data/countries.generated.ts`; after refreshing the back
+end's reference data (`npm run build:reference` in `backend/`), regenerate it with
+`npm run build:countries`.
+
 Demo the edge states with the mock: `?mock=error`, `?mock=empty`, `?mock=slow`.
 
 ## Layout

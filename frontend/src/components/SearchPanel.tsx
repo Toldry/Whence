@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fareSource, type PlaceSuggestion } from '../api';
 import type { Destination } from '../data/places';
-import { HOMES, REGIONS } from '../data/places';
 import { addDays, formatDay, formatMonth } from '../lib/format';
-import type { FromState, Store } from '../state';
+import type { Store } from '../state';
+import { OriginField, type AirportCounts } from './OriginPicker';
 import { upcomingMonths } from '../state';
 import { Dropdown, Icon, OptionList, PrimaryButton } from './ui';
 
 const CABINS = ['Economy', 'Premium economy', 'Business', 'First'] as const;
 
-export function SearchPanel({ store, countries, matchCount }: {
+export function SearchPanel({ store, airportCounts, matchCount }: {
   store: Store;
-  /** Countries that appear among the current origins, for the "A country" picker. */
-  countries: string[];
+  /** Origin airports with fares per country, for the counts in the "From" picker. */
+  airportCounts: AirportCounts;
   matchCount: number | null;
 }) {
   const { state: s, set, togglePopover, closePopover } = store;
@@ -80,7 +80,7 @@ export function SearchPanel({ store, countries, matchCount }: {
       </div>
 
       <div className="search-fields">
-        <FromField store={store} countries={countries} matchCount={matchCount} />
+        <OriginField store={store} airportCounts={airportCounts} matchCount={matchCount} />
         <DestinationField store={store} />
         <DatesField store={store} />
       </div>
@@ -167,85 +167,6 @@ function DestinationField({ store }: { store: Store }) {
         </div>
       )}
     </div>
-  );
-}
-
-const FROM_OPTIONS: { key: FromState['type']; label: string; sub: string; icon: string }[] = [
-  { key: 'anywhere', label: 'Anywhere', sub: 'Every airport with cached fares', icon: 'public' },
-  { key: 'region', label: 'A region', sub: 'Western Europe, Nordics, North America…', icon: 'map' },
-  { key: 'country', label: 'A country', sub: 'All airports in one country', icon: 'flag' },
-  { key: 'near', label: 'Near a city', sub: 'Within a distance you choose', icon: 'my_location' },
-];
-
-function FromField({ store, countries, matchCount }: { store: Store; countries: string[]; matchCount: number | null }) {
-  const { state: s, set, togglePopover, closePopover } = store;
-  const f = s.from;
-  const setFrom = (patch: Partial<FromState>) => set(st => ({ from: { ...st.from, ...patch } }));
-  const value = f.type === 'region' ? REGIONS[f.region]
-    : f.type === 'country' ? f.country
-      : f.type === 'near' ? `Within ${f.radiusKm.toLocaleString('en-GB')} km of ${f.city}` : 'Anywhere';
-  const countryList = countries.includes(f.country) ? countries : [...countries, f.country].sort();
-
-  return (
-    <Dropdown
-      className="field-wrap field-from" open={s.popover === 'from'} onToggle={() => togglePopover('from')} width={380}
-      triggerClassName="field"
-      trigger={<>
-        <Icon name="flight_takeoff" size={22} className="muted" />
-        <span className="field-text">
-          <span className="field-label">From</span>
-          <span className={`field-value ${f.type === 'anywhere' ? 'is-placeholder' : ''}`}>{value}</span>
-        </span>
-        <Icon name="expand_more" size={20} className="faint" />
-      </>}
-    >
-      <div className="popover-body tight">
-        {FROM_OPTIONS.map(o => (
-          <button type="button" key={o.key} className={`option option-rich ${f.type === o.key ? 'is-selected' : ''}`}
-            onClick={() => setFrom({ type: o.key })}>
-            <Icon name={o.icon} size={20} className={f.type === o.key ? 'accent' : 'muted'} />
-            <span className="grow column"><span className="strong">{o.label}</span><span className="subtle">{o.sub}</span></span>
-            {f.type === o.key && <Icon name="check" className="accent" />}
-          </button>
-        ))}
-        {f.type === 'region' && (
-          <div className="chip-grid">
-            {Object.entries(REGIONS).map(([key, label]) => (
-              <button type="button" key={key} className={`chip ${f.region === key ? 'is-active' : ''}`}
-                onClick={() => setFrom({ region: key })}>{label}</button>
-            ))}
-          </div>
-        )}
-        {f.type === 'country' && (
-          <div className="chip-grid scroll" style={{ maxHeight: 170 }}>
-            {countryList.map(country => (
-              <button type="button" key={country} className={`chip ${f.country === country ? 'is-active' : ''}`}
-                onClick={() => setFrom({ country })}>{country}</button>
-            ))}
-          </div>
-        )}
-        {f.type === 'near' && (
-          <div className="near-controls">
-            <label className="inline-control">
-              <span className="control-label">City</span>
-              <select value={f.city} onChange={e => setFrom({ city: e.target.value })}>
-                {HOMES.map(h => <option key={h.name} value={h.name}>{h.name}</option>)}
-              </select>
-            </label>
-            <label className="inline-control">
-              <span className="control-label">Radius</span>
-              <input type="range" min={100} max={2000} step={50} value={f.radiusKm}
-                onChange={e => setFrom({ radiusKm: Number(e.target.value) })} />
-              <span className="range-value">{f.radiusKm.toLocaleString('en-GB')} km</span>
-            </label>
-          </div>
-        )}
-        <div className="popover-footer">
-          <span className="subtle">{matchCount == null ? '' : `${matchCount} ${matchCount === 1 ? 'airport' : 'airports'} match`}</span>
-          <PrimaryButton onClick={closePopover}>Done</PrimaryButton>
-        </div>
-      </div>
-    </Dropdown>
   );
 }
 

@@ -62,9 +62,24 @@ describe('computeRows', () => {
   });
 
   it('filters by region and tolerates an unknown price age', () => {
-    const rows = computeRows(ctx(), { ...noFilters, scope: { type: 'region', region: 'na' } });
+    const rows = computeRows(ctx(), { ...noFilters, scope: { type: 'region', regions: ['northern-america'] } });
     expect(rows.map(r => r.airport.iata)).toEqual(['JFK']);
     expect(rows[0].ageHours).toBeNull();
+    const europe = computeRows(ctx(), { ...noFilters, scope: { type: 'region', regions: ['europe'] } });
+    expect(europe.map(r => r.airport.iata).sort()).toEqual(['GVA', 'LYS']);
+  });
+
+  it('filters by several countries, by code or by the airport\'s country name', () => {
+    const scope = { type: 'country' as const, countries: ['CH', 'US'] };
+    expect(computeRows(ctx(), { ...noFilters, scope }).map(r => r.airport.iata).sort()).toEqual(['GVA', 'JFK']);
+    const coded: InboundResponse = { ...response, airports: { ...response.airports, LYS: { ...airport('LYS'), country: 'Frankreich', country_code: 'FR' } } };
+    const french = computeRows(ctx({ response: coded }), { ...noFilters, scope: { type: 'country', countries: ['FR'] } });
+    expect(french.map(r => r.airport.iata)).toEqual(['LYS']);
+  });
+
+  it('filters by distance from any point', () => {
+    const scope = { type: 'near' as const, lat: 45.764, lon: 4.836, radiusKm: 200 };
+    expect(computeRows(ctx(), { ...noFilters, scope }).map(r => r.airport.iata).sort()).toEqual(['GVA', 'LYS']);
   });
 
   it('scales price for cabin and travellers', () => {

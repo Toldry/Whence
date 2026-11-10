@@ -183,6 +183,40 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
 .search-input input { flex: 1; border: 0; outline: 0; background: transparent; min-width: 0; }
 .near-controls { display: flex; flex-direction: column; gap: 10px; padding: 12px 10px 4px; border-top: 1px solid var(--line); margin-top: 6px; }
 .date-inputs { display: flex; gap: 10px; }
+
+/* "From" picker: tabs, then a searchable, grouped, multi-select list. */
+.origin-body { gap: 8px; padding: 6px 6px 4px; min-width: 0; }
+.origin-tabs button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 34px; min-width: 0; padding: 0 6px; font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.origin-tabs button.is-selected { color: var(--accent-strong); }
+.origin-hint { padding: 0 4px; }
+.selected-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-height: 86px; overflow-y: auto; padding: 0 2px; }
+.chip-removable { height: 30px; padding: 0 6px 0 10px; gap: 2px; font-size: 13px; }
+.chip-removable .icon { opacity: .7; }
+.chip-removable:hover .icon { opacity: 1; }
+.pick-tools { display: flex; gap: 8px; align-items: center; }
+.pick-tools .chip { flex: none; height: 38px; font-size: 13px; }
+.pick-tools .search-input { min-width: 0; }
+.icon-button-plain { border: 0; background: transparent; padding: 0; display: flex; color: var(--ink-5); }
+.pick-list { max-height: min(320px, 44vh); overflow-y: auto; margin: 0 -2px; padding: 0 2px; border-top: 1px solid var(--line); }
+.pick-list.short { max-height: min(220px, 34vh); border-top: 0; }
+.pick-group { padding: 2px 0; }
+.pick-group + .pick-group { border-top: 1px solid var(--line); }
+.pick-heading {
+  position: sticky; top: 0; z-index: 1; background: #fff;
+  padding: 8px 10px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-4);
+}
+.pick-row { justify-content: flex-start; gap: 10px; padding: 7px 10px; min-height: 38px; }
+.pick-row.is-nested { padding-left: 30px; }
+.pick-row.is-empty .pick-label { color: var(--ink-4); }
+.pick-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-count {
+  flex: none; min-width: 26px; text-align: right; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.pick-row.is-empty .pick-count { color: var(--ink-5); font-weight: 400; }
 .segmented { display: flex; background: #f1f2f5; border-radius: 10px; padding: 3px; }
 .segmented button {
   flex: 1; height: 32px; border: 0; border-radius: 8px; background: transparent; font-size: 13.5px; font-weight: 600;
@@ -404,6 +438,14 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
   .popover-right .popover, .field-wrap .popover { max-width: calc(100vw - 32px); }
   .field-dates .popover { width: auto !important; left: 0; right: 0; }
   .field-from .popover { width: auto !important; left: 0; right: 0; }
+  /* Long lists need the height: the picker becomes a sheet over the page. */
+  .field-from .popover { position: fixed; top: 12px; bottom: 12px; left: 12px; right: 12px; min-width: 0; max-width: none; display: flex; }
+  .origin-body { flex: 1; min-height: 0; }
+  .origin-body .pick-list { flex: 1; max-height: none; }
+  .origin-body .near-controls { flex: 1; min-height: 0; justify-content: flex-start; }
+  .origin-body .popover-footer { margin-top: auto; }
+  .origin-tabs button { font-size: 12.5px; padding: 0 2px; }
+  .pick-row { min-height: 44px; }
   .sidebar { width: 100%; border-right: 0; }
   .view-list .map-panel { display: none; }
   .view-map .sidebar { display: none; }
@@ -419,4 +461,7 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
   .list-footnote { padding-bottom: 80px; }
   .route-card { width: min(300px, calc(100vw - 32px)); }
   .legend { bottom: 76px; }
+}
+@media (max-width: 420px) {
+  .origin-tab-icon { display: none; }
 }

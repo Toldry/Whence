@@ -6,7 +6,7 @@
  */
 import type { AirportInfo, Fare, FareSource, InboundQuery, InboundResponse } from './types';
 import { distanceKm } from '../data/geo';
-import { DESTINATIONS, DESTINATION_BY_IATA, MOCK_AIRPORTS, regionOfCountry } from '../data/places';
+import { DESTINATIONS, DESTINATION_BY_IATA, MOCK_AIRPORTS } from '../data/places';
 
 interface SeedFare {
   price: number;
@@ -43,6 +43,18 @@ const LISBON_SEEDS: Record<string, SeedFare[]> = {
   MIA: [seed(468, 0, ['TAP Air Portugal'], 130)], ORD: [seed(497, 0, ['TAP Air Portugal', 'United'], 64)],
   SFO: [seed(562, 0, ['TAP Air Portugal'], 150)], LAX: [seed(598, 1, ['Delta', 'Air France'], 77)],
   YYZ: [seed(449, 0, ['Air Transat'], 31)], YUL: [seed(426, 0, ['Air Transat', 'Air Canada'], 58)],
+};
+
+/** Which airline pool and price curve a mock origin uses. */
+const MARKET_BY_COUNTRY: Record<string, string> = {
+  Spain: 'iberia', Portugal: 'iberia',
+  'United Kingdom': 'british', Ireland: 'british',
+  France: 'western', Belgium: 'western', Netherlands: 'western', Luxembourg: 'western',
+  Switzerland: 'central', Germany: 'central', Austria: 'central', Czechia: 'central',
+  Poland: 'central', Hungary: 'central', Slovakia: 'central',
+  Denmark: 'nordic', Sweden: 'nordic', Norway: 'nordic', Finland: 'nordic', Iceland: 'nordic',
+  Italy: 'southern', Greece: 'southern', 'Türkiye': 'southern', Malta: 'southern', Croatia: 'southern',
+  'United States': 'na', Canada: 'na',
 };
 
 const AIRLINE_POOL_BY_REGION: Record<string, string[]> = {
@@ -108,7 +120,7 @@ function pickDates(query: InboundQuery, random: () => number): [string, string |
 function generatedSeeds(origin: AirportInfo, destination: { iata: string; lat: number; lon: number }): SeedFare[] {
   const random = seededRandom('g' + origin.iata + destination.iata);
   const km = distanceKm(origin, destination);
-  const region = regionOfCountry(origin.country) ?? 'western';
+  const region = MARKET_BY_COUNTRY[origin.country] ?? 'western';
   let base = (region === 'na' ? 300 + km * 0.035 : 38 + km * 0.05) * (0.8 + random() * 0.5);
   const transfers = (km > 2500 && random() < 0.5) || random() < 0.22 ? 1 : 0;
   if (transfers) base *= 0.85;

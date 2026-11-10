@@ -4,13 +4,16 @@
  */
 import type { AirportInfo, Fare, InboundResponse, TripType } from '../api/types';
 import { distanceKm, estimateFlightMinutes, estimateGround, type GroundEstimate, type LatLon } from '../data/geo';
-import { HOME_BY_NAME, isNorthAmerica, regionOfCountry, type HomeCity } from '../data/places';
+import type { HomeCity } from '../data/places';
+import { countryCodeOf, regionsOfCountry } from '../data/regions';
 
 export type OriginScope =
   | { type: 'anywhere' }
-  | { type: 'region'; region: string }
-  | { type: 'country'; country: string }
-  | { type: 'near'; city: string; radiusKm: number };
+  /** Continent or subregion keys; an airport matches if it is in any of them. */
+  | { type: 'region'; regions: string[] }
+  /** ISO 3166 alpha-2 codes. */
+  | { type: 'country'; countries: string[] }
+  | { type: 'near'; lat: number; lon: number; radiusKm: number };
 
 export type StopsFilter = 'any' | '0' | '1';
 export type SortKey = 'total' | 'price' | 'duration' | 'date' | 'fresh';
@@ -81,13 +84,12 @@ export function groundPassengerFactor(t: Travellers): number {
 function inScope(airport: AirportInfo, scope: OriginScope): boolean {
   switch (scope.type) {
     case 'anywhere': return true;
-    case 'region':
-      return scope.region === 'europe' ? !isNorthAmerica(airport.country) : regionOfCountry(airport.country) === scope.region;
-    case 'country': return airport.country === scope.country;
-    case 'near': {
-      const centre = HOME_BY_NAME[scope.city];
-      return !!centre && distanceKm(centre, airport) <= scope.radiusKm;
+    case 'region': return regionsOfCountry(countryCodeOf(airport)).some(r => scope.regions.includes(r));
+    case 'country': {
+      const code = countryCodeOf(airport);
+      return !!code && scope.countries.includes(code);
     }
+    case 'near': return distanceKm(scope, airport) <= scope.radiusKm;
   }
 }
 

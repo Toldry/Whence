@@ -10,9 +10,14 @@ export type PopoverKey =
 
 export interface FromState {
   type: OriginScope['type'];
-  region: string;
-  country: string;
+  /** Continent or subregion keys from data/regions.ts. */
+  regions: string[];
+  /** ISO 3166 alpha-2 codes. */
+  countries: string[];
+  /** Centre of the "near a city" circle. */
   city: string;
+  cityLat: number;
+  cityLon: number;
   radiusKm: number;
 }
 
@@ -66,9 +71,10 @@ export function upcomingMonths(today = new Date()): string[] {
 
 export function scopeFromState(from: FromState): OriginScope {
   switch (from.type) {
-    case 'region': return { type: 'region', region: from.region };
-    case 'country': return { type: 'country', country: from.country };
-    case 'near': return { type: 'near', city: from.city, radiusKm: from.radiusKm };
+    // Nothing picked yet means no limit, so opening a tab never empties the list.
+    case 'region': return from.regions.length ? { type: 'region', regions: from.regions } : { type: 'anywhere' };
+    case 'country': return from.countries.length ? { type: 'country', countries: from.countries } : { type: 'anywhere' };
+    case 'near': return { type: 'near', lat: from.cityLat, lon: from.cityLon, radiusKm: from.radiusKm };
     default: return { type: 'anywhere' };
   }
 }
@@ -78,7 +84,9 @@ export function initialState(): AppState {
   const month = months[4];
   return {
     destination: DESTINATION_BY_IATA.LIS,
-    from: { type: 'anywhere', region: 'western', country: 'Spain', city: 'Paris', radiusKm: 600 },
+    from: {
+      type: 'anywhere', regions: [], countries: [], city: 'Paris', cityLat: 48.857, cityLon: 2.352, radiusKm: 600,
+    },
     trip: 'round', dateMode: 'flex', flexKind: 'weekend', month, length: 5,
     depart: `${month}-12`, returnDate: `${month}-15`,
     adults: 1, children: 0, infants: 0, cabin: 'Economy',

@@ -16,7 +16,7 @@ describe('url state', () => {
   it('round-trips filters, nested origin scope, arrays and nullables', () => {
     const state: AppState = {
       ...defaults,
-      from: { ...defaults.from, type: 'near', city: 'Madrid', radiusKm: 300 },
+      from: { ...defaults.from, type: 'near', city: 'Madrid', cityLat: 40.417, cityLon: -3.704, radiusKm: 300 },
       trip: 'oneway', dateMode: 'exact', depart: '2027-01-05',
       adults: 2, children: 1, cabin: 'Business', stops: '0', maxPrice: 250,
       airlines: ['TAP Air Portugal', 'Vueling'], maxDurationHours: 6,
@@ -41,6 +41,27 @@ describe('url state', () => {
     const palma = { name: 'Palma', iata: 'PMI', country: 'Spain', lat: 39.57, lon: 2.65 };
     expect(roundTrip({ ...defaults, home: palma }).home).toEqual(palma);
     expect(stateFromParams(new URLSearchParams('home=Nowhere'), defaults).home).toEqual(defaults.home);
+  });
+
+  it('round-trips several regions and countries as comma lists', () => {
+    const from = { ...defaults.from, type: 'country' as const, regions: ['europe', 'caribbean'], countries: ['ES', 'PT'] };
+    const params = stateToParams({ ...defaults, from }, defaults);
+    expect(params.get('fromCountries')).toBe('ES,PT');
+    expect(params.get('fromRegions')).toBe('europe,caribbean');
+    expect(roundTrip({ ...defaults, from }).from).toEqual(from);
+  });
+
+  it('drops unknown regions and countries but keeps the rest', () => {
+    const state = stateFromParams(new URLSearchParams('fromType=country&fromCountries=ES,XX,pt,FR&fromRegions=atlantis,polynesia'), defaults);
+    expect(state.from.countries).toEqual(['ES', 'FR']);
+    expect(state.from.regions).toEqual(['polynesia']);
+  });
+
+  it('reads links made with the old single region, country and preset city', () => {
+    const state = stateFromParams(new URLSearchParams('fromType=region&fromRegion=nordic&fromCountry=Spain&fromCity=Madrid'), defaults);
+    expect(state.from.regions).toEqual(['northern-europe']);
+    expect(state.from.countries).toEqual(['ES']);
+    expect([state.from.city, state.from.cityLat, state.from.cityLon]).toEqual(['Madrid', HOME_BY_NAME.Madrid.lat, HOME_BY_NAME.Madrid.lon]);
   });
 
   it('ignores invalid values and leaves transient UI state alone', () => {
