@@ -15,9 +15,22 @@ import { ResultsList, type EmptySuggestion, type ListStatus } from './components
 import { SearchPanel } from './components/SearchPanel';
 import { Dropdown, Icon } from './components/ui';
 import { BrandMark } from './components/BrandMark';
+import { stateFromParams, urlForState } from './lib/urlState';
+
+/** The starting state: the defaults, overridden by whatever the page URL carries. */
+function stateFromUrl(): AppState {
+  return stateFromParams(new URLSearchParams(window.location.search), initialState());
+}
 
 function useStore(): Store {
-  const [state, setState] = useState<AppState>(initialState);
+  const [state, setState] = useState<AppState>(stateFromUrl);
+  const [defaults] = useState<AppState>(initialState);
+  // Mirror the search into the URL without adding history entries, so links are shareable.
+  useEffect(() => {
+    const url = urlForState(state, defaults, window.location);
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (url !== current) window.history.replaceState(window.history.state, '', url);
+  }, [state, defaults]);
   const set = useCallback((patch: StatePatch) => {
     setState(prev => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) }));
   }, []);
