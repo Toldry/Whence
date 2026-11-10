@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ReferenceData } from '../src/providers/reference-data.ts';
-import { normalizeTimestamp, TravelpayoutsProvider } from '../src/providers/travelpayouts.ts';
+import { normalizeTimestamp, searchDateOf, TravelpayoutsProvider } from '../src/providers/travelpayouts.ts';
 import type { InboundQuery } from '../src/types.ts';
 import { UpstreamError } from '../src/types.ts';
 
@@ -35,8 +35,9 @@ const pricesForDates = {
 const latestPrices = {
   success: true, currency: 'eur',
   data: [
-    { origin: 'PAR', destination: 'LIS', depart_date: '2027-03-12', return_date: '2027-03-14', number_of_changes: 0, value: 49, found_at: '2026-11-08T10:20:00' },
-    { origin: 'LON', destination: 'LIS', depart_date: '2027-03-19', return_date: '2027-03-21', number_of_changes: 1, value: 61, found_at: '2026-11-07T09:00:00Z' },
+    // Live rows carry full timestamps, not the plain dates the docs show.
+    { origin: 'PAR', destination: 'LIS', depart_date: '2027-03-12T07:05:00+01:00', return_date: '2027-03-14T20:15:00Z', number_of_changes: 0, value: 49, found_at: '2026-11-08T10:20:00' },
+    { origin: 'LON', destination: 'LIS', depart_date: '2027-03-19T06:00:00Z', return_date: '2027-03-21T18:30:00Z', number_of_changes: 1, value: 61, found_at: '2026-11-07T09:00:00Z' },
   ],
 };
 
@@ -58,12 +59,21 @@ test('merges both endpoints into contract fares with metadata', async () => {
   const provider = new TravelpayoutsProvider({ token: 't', marker: '12345', referenceData: reference, fetchImpl: impl });
   const result = await provider.searchInbound(query);
 
-  assert.equal(calls.length, 2);
-  const datesCall = calls.find((c) => c.pathname.endsWith('prices_for_dates'))!;
+  // Each endpoint per day and per origin.
+  assert.equal(calls.length, 4);
+  const datesCalls = calls.filter((c) => c.pathname.endsWith('prices_for_dates'));
+  assert.deepEqual(datesCalls.map((c) => c.searchParams.get('unique')).sort(), ['false', 'true']);
+  const latestCalls = calls.filter((c) => c.pathname.endsWith('get_latest_prices'));
+  assert.deepEqual(latestCalls.map((c) => c.searchParams.get('group_by')).sort(), ['dates', 'directions']);
+  const datesCall = datesCalls[0]!;
   assert.equal(datesCall.searchParams.get('destination'), 'LIS');
   assert.equal(datesCall.searchParams.get('origin'), null);
   assert.equal(datesCall.searchParams.get('market'), 'pt'); // auto: destination country
   assert.equal(datesCall.searchParams.get('one_way'), 'false');
+  // Flexible round trips leave the return month open (trips that cross into the next month).
+  assert.equal(datesCall.searchParams.get('return_at'), null);
+  // The per-day and per-origin calls return the same fare; it is kept once.
+  assert.equal(result.fares.filter((f) => f.origin === 'ORY').length, 1);
 
   assert.deepEqual(result.fares[0], {
     origin: 'ORY', destination: 'LIS', price: 47, transfers: 0, airlines: ['Transavia France'],
@@ -75,6 +85,9 @@ test('merges both endpoints into contract fares with metadata', async () => {
   const london = result.fares.find((f) => f.origin === 'LON')!;
   assert.deepEqual(london.airlines, []);
   assert.equal(london.transfers, 1);
+  assert.equal(london.departure_at, '2027-03-19');
+  assert.equal(london.return_at, '2027-03-21');
+  assert.equal(london.link, 'https://www.aviasales.com/search/LON1903LIS21031?marker=12345');
   assert.equal(result.airports.LON?.name, 'London (all airports)');
   assert.equal(result.airports.ORY?.city, 'Paris');
   assert.equal(result.airports.LIS?.country, 'Portugal');
@@ -104,7 +117,36 @@ test('reads further pages only while pages come back full', async () => {
   });
   const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl, pageSize: 2, maxPages: 5 });
   await provider.searchInbound(query);
-  assert.equal(calls.filter((c) => c.pathname.endsWith('prices_for_dates')).length, 2);
+  // Two pages for each of the per-day and per-origin calls.
+  assert.equal(calls.filter((c) => c.pathname.endsWith('prices_for_dates')).length, 4);
+});
+
+test('exact round trips ask for the return date', async () => {
+  const { impl, calls } = fakeFetch(() => ({ status: 200, body: { success: true, data: [] } }));
+  const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl });
+  await provider.searchInbound({ destination: 'LIS', trip: 'round', dateMode: 'exact', depart: '2027-03-12', return: '2027-03-14' });
+  const datesCall = calls.find((c) => c.pathname.endsWith('prices_for_dates'))!;
+  assert.equal(datesCall.searchParams.get('departure_at'), '2027-03-12');
+  assert.equal(datesCall.searchParams.get('return_at'), '2027-03-14');
+});
+
+test('fares without a latest-prices sighting take found_at from the link search_date', async () => {
+  const unmatched = { ...pricesForDates, data: [{
+    ...pricesForDates.data[0], departure_at: '2027-03-13T07:05:00+01:00', return_at: '2027-03-15T20:15:00Z',
+    link: '/search/PAR1303LIS15031?t=TO17&search_date=09112026&expected_price=47',
+  }] };
+  const { impl } = fakeFetch((url) => ({
+    status: 200, body: url.pathname.endsWith('prices_for_dates') ? unmatched : { success: true, data: [] },
+  }));
+  const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl });
+  const result = await provider.searchInbound(query);
+  assert.equal(result.fares[0]?.found_at, '2026-11-09T00:00:00.000Z');
+});
+
+test('search_date parsing', () => {
+  assert.equal(searchDateOf('/search/X?t=1&search_date=03112026&x=2'), '2026-11-03T00:00:00.000Z');
+  assert.equal(searchDateOf('/search/X?t=1'), null);
+  assert.equal(searchDateOf(undefined), null);
 });
 
 test('timestamps without a zone are read as UTC', () => {

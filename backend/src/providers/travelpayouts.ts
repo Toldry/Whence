@@ -7,9 +7,19 @@ import type { ReferenceData } from './reference-data.ts';
  * Docs: https://support.travelpayouts.com/hc/en-us/articles/203956163
  *
  * Two endpoints answer "every origin to one destination" when origin is omitted:
- *  - v3/prices_for_dates: airline, flight duration, booking link, but no found_at.
+ *  - v3/prices_for_dates: airline, flight duration, booking link, but no found_at
+ *    (the link's search_date gives the day it was seen).
  *  - v3/get_latest_prices: found_at and transfers, but no airline or link.
  * Both are called and merged on (origin city, depart date, return date).
+ *
+ * Each endpoint is called in two groupings, because with origin omitted the
+ * upstream groups rows in a way that hides most origins (measured live, Nov 2026):
+ *  - per day (unique=false / group_by=dates): the cheapest fares per departure
+ *    day across all origins. One-way searches get about one row per day, so only
+ *    ~10 origins (LIS, Feb 2027: 10 origins).
+ *  - per origin (unique=true / group_by=directions): the cheapest fare of the
+ *    month for every origin (LIS, Feb 2027: 119 origins one-way, 88 round trip).
+ * The union keeps several dates for busy origins and still reaches every origin.
  */
 export interface TravelpayoutsOptions {
   token: string;
@@ -59,10 +69,10 @@ export class TravelpayoutsProvider implements FareProvider {
     await reference.ensureLoaded();
     const markets = this.marketsFor(query.destination);
 
-    const calls = markets.flatMap((market) => [
-      this.fetchPricesForDates(query, market, signal).then((rows) => ({ kind: 'dates' as const, rows })),
-      this.fetchLatestPrices(query, market, signal).then((rows) => ({ kind: 'latest' as const, rows })),
-    ]);
+    const calls = markets.flatMap((market) => [false, true].flatMap((perOrigin) => [
+      this.fetchPricesForDates(query, market, perOrigin, signal).then((rows) => ({ kind: 'dates' as const, rows })),
+      this.fetchLatestPrices(query, market, perOrigin, signal).then((rows) => ({ kind: 'latest' as const, rows })),
+    ]));
     const settled = await Promise.allSettled(calls);
     const failures = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
     if (failures.length === settled.length) {
@@ -99,19 +109,26 @@ export class TravelpayoutsProvider implements FareProvider {
     const tripKey = (cityCode: string, depart: string, ret: string | null) => `${cityCode}|${depart}|${ret ?? ''}`;
 
     // Newest sighting per (origin city, dates), for found_at.
+    // get_latest_prices returns full timestamps (e.g. 2027-03-07T07:15:00+01:00)
+    // despite the docs saying dates, so keys and fares use the date part only.
     const latestByKey = new Map<string, LatestPricesRow>();
     for (const row of latestRows) {
-      const key = tripKey(reference.cityCodeOf(row.origin), row.depart_date, returnDateOf(query, row.return_date));
+      const key = tripKey(reference.cityCodeOf(row.origin), datePart(row.depart_date), returnDateOf(query, row.return_date));
       const previous = latestByKey.get(key);
       if (!previous || (row.found_at ?? '') > (previous.found_at ?? '')) latestByKey.set(key, row);
     }
 
     const fares: Fare[] = [];
     const citiesWithDetailedFares = new Set<string>();
+    const seenDetailed = new Set<string>();
     for (const row of datesRows) {
-      const departDate = row.departure_at.slice(0, 10);
-      const returnDate = returnDateOf(query, row.return_at?.slice(0, 10));
+      const departDate = datePart(row.departure_at);
+      const returnDate = returnDateOf(query, row.return_at);
       const origin = row.origin_airport || row.origin;
+      // The per-day and per-origin calls overlap; keep each fare once.
+      const fareKey = `${origin}|${departDate}|${returnDate ?? ''}|${row.price}|${row.airline ?? ''}`;
+      if (seenDetailed.has(fareKey)) continue;
+      seenDetailed.add(fareKey);
       const cityCode = reference.cityCodeOf(row.origin);
       citiesWithDetailedFares.add(cityCode);
       const sighting = latestByKey.get(tripKey(cityCode, departDate, returnDate));
@@ -124,7 +141,7 @@ export class TravelpayoutsProvider implements FareProvider {
         departure_at: departDate,
         return_at: returnDate,
         duration_minutes: row.duration_to ?? (query.trip === 'oneway' ? row.duration ?? null : null),
-        found_at: normalizeTimestamp(sighting?.found_at),
+        found_at: normalizeTimestamp(sighting?.found_at) ?? searchDateOf(row.link),
         link: this.withMarker(row.link
           ? this.options.linkBaseUrl + (row.link.startsWith('/') ? '' : '/') + row.link
           : this.searchLink(origin, query.destination, departDate, returnDate)),
@@ -136,17 +153,18 @@ export class TravelpayoutsProvider implements FareProvider {
       const cityCode = reference.cityCodeOf(row.origin);
       if (citiesWithDetailedFares.has(cityCode)) continue;
       const returnDate = returnDateOf(query, row.return_date);
+      const departDate = datePart(row.depart_date);
       fares.push({
         origin: row.origin,
         destination: query.destination,
         price: Math.round(row.value),
         transfers: row.number_of_changes ?? 0,
         airlines: [],
-        departure_at: row.depart_date,
+        departure_at: departDate,
         return_at: returnDate,
         duration_minutes: null,
         found_at: normalizeTimestamp(row.found_at),
-        link: this.withMarker(this.searchLink(row.origin, query.destination, row.depart_date, returnDate)),
+        link: this.withMarker(this.searchLink(row.origin, query.destination, departDate, returnDate)),
       });
     }
     return fares;
@@ -162,14 +180,16 @@ export class TravelpayoutsProvider implements FareProvider {
     if (query.dateMode === 'exact') {
       return { departureAt: query.depart!, returnAt: query.trip === 'round' ? query.return! : null };
     }
-    return { departureAt: query.month!, returnAt: query.trip === 'round' ? query.month! : null };
+    // Flexible round trips leave the return open, so a trip that starts late in the
+    // month and comes back in the next one is still found (the service checks the stay).
+    return { departureAt: query.month!, returnAt: null };
   }
 
-  private async fetchPricesForDates(query: InboundQuery, market: string, signal?: AbortSignal) {
+  private async fetchPricesForDates(query: InboundQuery, market: string, perOrigin: boolean, signal?: AbortSignal) {
     const { departureAt, returnAt } = this.dateParams(query);
     const params: Record<string, string> = {
       destination: query.destination, departure_at: departureAt,
-      one_way: String(query.trip === 'oneway'), direct: 'false', unique: 'false',
+      one_way: String(query.trip === 'oneway'), direct: 'false', unique: String(perOrigin),
       sorting: 'price', currency: this.options.currency.toLowerCase(), market,
       limit: String(this.options.pageSize),
     };
@@ -177,11 +197,11 @@ export class TravelpayoutsProvider implements FareProvider {
     return this.fetchPages<PricesForDatesRow>('/aviasales/v3/prices_for_dates', params, signal);
   }
 
-  private async fetchLatestPrices(query: InboundQuery, market: string, signal?: AbortSignal) {
+  private async fetchLatestPrices(query: InboundQuery, market: string, perOrigin: boolean, signal?: AbortSignal) {
     const month = query.dateMode === 'exact' ? query.depart!.slice(0, 7) : query.month!;
     const params: Record<string, string> = {
       destination: query.destination, period_type: 'month', beginning_of_period: `${month}-01`,
-      one_way: String(query.trip === 'oneway'), group_by: 'dates', sorting: 'price',
+      one_way: String(query.trip === 'oneway'), group_by: perOrigin ? 'directions' : 'dates', sorting: 'price',
       currency: this.options.currency.toLowerCase(), market, trip_class: '0',
       limit: String(this.options.pageSize),
     };
@@ -222,8 +242,25 @@ export class TravelpayoutsProvider implements FareProvider {
   }
 }
 
+/** YYYY-MM-DD from an upstream date or timestamp (the local date as sent). */
+function datePart(value: string): string {
+  return value.slice(0, 10);
+}
+
 function returnDateOf(query: InboundQuery, value: string | null | undefined): string | null {
-  return query.trip === 'round' && value ? value.slice(0, 10) : null;
+  return query.trip === 'round' && value ? datePart(value) : null;
+}
+
+/**
+ * prices_for_dates has no found_at, but its link carries search_date=DDMMYYYY.
+ * Measured live, that is always the UTC date of get_latest_prices' found_at for the
+ * same fare. Returned as the start of that day, so the age shown errs on the old side.
+ */
+export function searchDateOf(link: string | undefined): string | null {
+  const match = /[?&]search_date=(\d{2})(\d{2})(\d{4})(?:&|$)/.exec(link ?? '');
+  if (!match) return null;
+  const iso = `${match[3]}-${match[2]}-${match[1]}T00:00:00.000Z`;
+  return Number.isNaN(Date.parse(iso)) ? null : iso;
 }
 
 /** Upstream timestamps may lack a zone; they are UTC. */

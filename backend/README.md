@@ -64,10 +64,17 @@ Errors are `{ "error": { "code", "message" } }`: `invalid_params` (400),
    If the upstream fails after the TTL, the last good answer is served for up to `CACHE_STALE_HOURS`
    with `meta.stale: true`.
 3. The Travelpayouts provider calls two endpoints with only `destination` set, in parallel:
-   - `prices_for_dates` gives airline, duration and a booking link, but no `found_at`.
+   - `prices_for_dates` gives airline, duration and a booking link, but no `found_at`
+     (when no sighting matches, `found_at` is the start of the link's `search_date` day, UTC).
    - `get_latest_prices` gives `found_at`, but no airline or link.
+
+   Each is called twice: grouped per day (`unique=false` / `group_by=dates`) and per origin
+   (`unique=true` / `group_by=directions`). Without an origin, the per-day grouping returns only
+   the cheapest fares of each day across all origins, so a one-way month shows about 10 origins;
+   the per-origin grouping returns every origin's cheapest fare of the month (see "Live API notes").
    Rows are merged on (origin city, depart date, return date). Cities only the second endpoint knows
    about are added as city-level origins (e.g. `LON`, plotted at the city centre, `airlines: []`).
+   Flexible round trips leave the return month open, so trips that return next month are found.
 4. The service drops fares that don't fit the trip shape or can't be plotted, then keeps per origin
    the cheapest fare plus the cheapest nonstop.
 
@@ -88,12 +95,13 @@ See `.env.example`. The main knobs:
 | `FARE_PROVIDER` | `travelpayouts` if a token is set, else `mock` | |
 | `TRAVELPAYOUTS_API_TOKEN` | | From the Travelpayouts dashboard |
 | `TRAVELPAYOUTS_MARKER` | | Affiliate marker, appended to booking links |
-| `TRAVELPAYOUTS_MARKETS` | `auto` | `auto` = destination's country (LIS → `pt`); or a list like `pt,gb,de` |
+| `TRAVELPAYOUTS_MARKETS` | `auto` | `auto` = destination's country (LIS → `pt`); or a list like `pt,gb,de`. Measured live, the market made no difference (see below), so keep one |
 | `TRAVELPAYOUTS_MAX_PAGES` | `2` | Pages of 1000 rows per endpoint per market |
 | `CACHE_TTL_MINUTES` | `30` | |
 | `CORS_ORIGIN` | `*` | Set to the front end's origin when deployed |
 
-Each uncached search costs `2 × markets × pages` upstream calls at most (4 with the defaults).
+Each uncached search costs `4 × markets × pages` upstream calls at most. In practice it is 4: no
+response came near 1000 rows (London round trips for a month: 876), so the second page is never read.
 
 ## Swapping the data source
 
@@ -101,14 +109,37 @@ Implement `FareProvider` from `src/types.ts` (`searchInbound`, `searchPlaces`) a
 `createProvider` in `src/config.ts`. The service handles caching, filtering and trimming, so a
 provider only has to return raw fares plus airport metadata for each origin.
 
+## Live API notes (measured 10 Nov 2026)
+
+Checked against api.travelpayouts.com for LIS, KEF and INV (Inverness), Dec 2026, Feb 2027 and
+May 2027, one-way and round trip, markets `pt`/`is`, `gb`, `de`, `us`:
+
+- **Market:** every market returned the same rows (±1 origin). It is not worth calling more than one.
+- **`found_at`** is UTC with a `Z`. Prices are at most about 7 days old; the median is 2 to 4 days.
+- **`get_latest_prices`** honours `limit`, `page` and `period_type=month`. Its `depart_date` and
+  `return_date` are full timestamps (`2027-03-07T07:15:00+01:00`), not dates as documented; the
+  provider keeps the date part.
+- **`prices_for_dates` links** carry `search_date=DDMMYYYY`, which matched the UTC date of
+  `found_at` for all 611 fares that appear in both endpoints.
+- **Paging:** the largest response seen was 900 rows (IST, round trip, one month), below the
+  1000-row page, so paging has not been exercised live.
+- **Coverage** (origins after the trip-shape filter, from the running back end):
+
+| Search | LIS | KEF | INV |
+|---|---|---|---|
+| Dec 2026, one-way | 231 | 118 | 5 |
+| Dec 2026, round, weekend | 38 | 17 | 2 |
+| Dec 2026, round, week | 73 | 43 | 0 |
+| Feb 2027, one-way | 122 | 39 | 1 |
+| Feb 2027, round, weekend | 16 | 7 | 1 |
+| May 2027, round, week | 29 | 26 | 0 |
+
+  Before the per-origin calls, LIS one-way in Feb 2027 showed 11 origins and every `found_at` was null.
+
 ## Known gaps
 
-- **Not yet run against the live API.** This was built in a sandbox that cannot reach
-  api.travelpayouts.com. The request and response shapes follow the published docs
-  (https://support.travelpayouts.com/hc/en-us/articles/203956163) and are covered by tests with
-  recorded-style fixtures, but the first real run may need small fixes. Things to check then:
-  whether `get_latest_prices` honours `limit`, the time zone of `found_at` (assumed UTC), and which
-  `market` gives the best coverage.
-- Flexible round trips ask the upstream for a return in the same month, so a trip that starts on
-  the last weekend and returns in the next month is missed.
+- Round-trip weekend searches stay sparse: the per-origin call gives each origin's single cheapest
+  trip of the month, which is often not a weekend. Asking per departure day (about 13 extra calls
+  for a weekend month) would find more.
+- Small airports have little cached data (INV: 0 to 5 origins a month); nothing on our side fixes that.
 - Reference data (about 10 MB) is cached to `.cache/reference/` for 7 days.
