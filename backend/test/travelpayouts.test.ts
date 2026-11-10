@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { ReferenceData } from '../src/providers/reference-data.ts';
+import { normalizeTimestamp, TravelpayoutsProvider } from '../src/providers/travelpayouts.ts';
+import type { InboundQuery } from '../src/types.ts';
+import { UpstreamError } from '../src/types.ts';
+
+const reference = ReferenceData.fromRecords({
+  airports: [
+    { code: 'LIS', name: 'Humberto Delgado', city_code: 'LIS', country_code: 'PT', coordinates: { lat: 38.77, lon: -9.13 }, flightable: true, iata_type: 'airport' },
+    { code: 'ORY', name: 'Orly', city_code: 'PAR', country_code: 'FR', coordinates: { lat: 48.72, lon: 2.38 }, flightable: true, iata_type: 'airport' },
+    { code: 'CDG', name: 'Charles de Gaulle', city_code: 'PAR', country_code: 'FR', coordinates: { lat: 49.01, lon: 2.55 }, flightable: true, iata_type: 'airport' },
+  ],
+  cities: [
+    { code: 'LIS', name: 'Lisbon', country_code: 'PT', coordinates: { lat: 38.72, lon: -9.14 }, has_flightable_airport: true },
+    { code: 'PAR', name: 'Paris', country_code: 'FR', coordinates: { lat: 48.86, lon: 2.35 }, has_flightable_airport: true },
+    { code: 'LON', name: 'London', country_code: 'GB', coordinates: { lat: 51.51, lon: -0.13 }, has_flightable_airport: true },
+  ],
+  countries: [{ code: 'PT', name: 'Portugal' }, { code: 'FR', name: 'France' }, { code: 'GB', name: 'United Kingdom' }],
+  airlines: [{ code: 'TO', name: 'Transavia France' }],
+});
+
+const query: InboundQuery = { destination: 'LIS', trip: 'round', dateMode: 'flex', month: '2027-03', flexKind: 'weekend' };
+
+const pricesForDates = {
+  success: true, currency: 'eur',
+  data: [{
+    origin: 'PAR', destination: 'LIS', origin_airport: 'ORY', destination_airport: 'LIS', price: 47,
+    airline: 'TO', flight_number: '3400', departure_at: '2027-03-12T07:05:00+01:00',
+    return_at: '2027-03-14T20:15:00+00:00', transfers: 0, return_transfers: 0,
+    duration: 290, duration_to: 145, duration_back: 145,
+    link: '/search/PAR1203LIS14031?t=TO17',
+  }],
+};
+const latestPrices = {
+  success: true, currency: 'eur',
+  data: [
+    { origin: 'PAR', destination: 'LIS', depart_date: '2027-03-12', return_date: '2027-03-14', number_of_changes: 0, value: 49, found_at: '2026-11-08T10:20:00' },
+    { origin: 'LON', destination: 'LIS', depart_date: '2027-03-19', return_date: '2027-03-21', number_of_changes: 1, value: 61, found_at: '2026-11-07T09:00:00Z' },
+  ],
+};
+
+function fakeFetch(handler: (url: URL) => { status: number; body: unknown }) {
+  const calls: URL[] = [];
+  const impl = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    calls.push(url);
+    const { status, body } = handler(url);
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
+  return { impl, calls };
+}
+
+test('merges both endpoints into contract fares with metadata', async () => {
+  const { impl, calls } = fakeFetch((url) => ({
+    status: 200, body: url.pathname.endsWith('prices_for_dates') ? pricesForDates : latestPrices,
+  }));
+  const provider = new TravelpayoutsProvider({ token: 't', marker: '12345', referenceData: reference, fetchImpl: impl });
+  const result = await provider.searchInbound(query);
+
+  assert.equal(calls.length, 2);
+  const datesCall = calls.find((c) => c.pathname.endsWith('prices_for_dates'))!;
+  assert.equal(datesCall.searchParams.get('destination'), 'LIS');
+  assert.equal(datesCall.searchParams.get('origin'), null);
+  assert.equal(datesCall.searchParams.get('market'), 'pt'); // auto: destination country
+  assert.equal(datesCall.searchParams.get('one_way'), 'false');
+
+  assert.deepEqual(result.fares[0], {
+    origin: 'ORY', destination: 'LIS', price: 47, transfers: 0, airlines: ['Transavia France'],
+    departure_at: '2027-03-12', return_at: '2027-03-14', duration_minutes: 145,
+    found_at: '2026-11-08T10:20:00.000Z',
+    link: 'https://www.aviasales.com/search/PAR1203LIS14031?t=TO17&marker=12345',
+  });
+  // London only appears in latest prices: city-level origin, no airline.
+  const london = result.fares.find((f) => f.origin === 'LON')!;
+  assert.deepEqual(london.airlines, []);
+  assert.equal(london.transfers, 1);
+  assert.equal(result.airports.LON?.name, 'London (all airports)');
+  assert.equal(result.airports.ORY?.city, 'Paris');
+  assert.equal(result.airports.LIS?.country, 'Portugal');
+  // Paris already has a detailed fare, so its latest-prices row is not duplicated.
+  assert.equal(result.fares.filter((f) => f.origin === 'PAR').length, 0);
+});
+
+test('one endpoint failing still returns the other', async () => {
+  const { impl } = fakeFetch((url) => (url.pathname.endsWith('prices_for_dates')
+    ? { status: 500, body: { success: false, error: 'boom' } } : { status: 200, body: latestPrices }));
+  const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl });
+  const result = await provider.searchInbound(query);
+  assert.deepEqual(result.fares.map((f) => f.origin).sort(), ['LON', 'PAR']);
+});
+
+test('both endpoints failing raises UpstreamError', async () => {
+  const { impl } = fakeFetch(() => ({ status: 401, body: { success: false, error: 'Unauthorized' } }));
+  const provider = new TravelpayoutsProvider({ token: 'bad', referenceData: reference, fetchImpl: impl });
+  await assert.rejects(provider.searchInbound(query), UpstreamError);
+});
+
+test('reads further pages only while pages come back full', async () => {
+  const { impl, calls } = fakeFetch((url) => {
+    const page = Number(url.searchParams.get('page'));
+    const rows = page === 1 ? [pricesForDates.data[0], pricesForDates.data[0]] : [pricesForDates.data[0]];
+    return { status: 200, body: { success: true, data: url.pathname.endsWith('prices_for_dates') ? rows : [] } };
+  });
+  const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl, pageSize: 2, maxPages: 5 });
+  await provider.searchInbound(query);
+  assert.equal(calls.filter((c) => c.pathname.endsWith('prices_for_dates')).length, 2);
+});
+
+test('timestamps without a zone are read as UTC', () => {
+  assert.equal(normalizeTimestamp('2026-11-08T10:20:00'), '2026-11-08T10:20:00.000Z');
+  assert.equal(normalizeTimestamp('2026-11-08T12:20:00+02:00'), '2026-11-08T10:20:00.000Z');
+  assert.equal(normalizeTimestamp(undefined), null);
+  assert.equal(normalizeTimestamp('garbage'), null);
+});
+
+test('place search ranks code matches first and folds same-code city and airport', () => {
+  const places = reference.searchPlaces('lis', 10);
+  assert.equal(places[0]?.iata, 'LIS');
+  assert.equal(places.filter((p) => p.iata === 'LIS').length, 1);
+  assert.deepEqual(reference.searchPlaces('par', 10).map((p) => p.iata).sort(), ['CDG', 'ORY', 'PAR']);
+});
