@@ -94,19 +94,27 @@ function DestinationField({ store }: { store: Store }) {
   const [text, setText] = useState('');
   const [highlight, setHighlight] = useState(0);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  // The text the shown suggestions answer, so a slow reply never passes for
+  // the current one; and whether the last lookup failed.
+  const [answeredText, setAnsweredText] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const open = focused && s.popover === 'to';
+  const searching = open && answeredText !== text;
 
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       fareSource.searchPlaces(text, controller.signal)
-        .then(list => { setSuggestions(list.slice(0, 12)); setLoaded(true); })
-        .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setLoaded(true); } });
+        .then(list => { setSuggestions(list.slice(0, 12)); setFailed(false); setAnsweredText(text); })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setSuggestions([]); setFailed(true); setAnsweredText(text);
+        });
     }, text ? 150 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [text, open]);
+  }, [text, open, retryCount]);
 
   const pick = (place: PlaceSuggestion) => {
     const destination: Destination = {
@@ -129,7 +137,10 @@ function DestinationField({ store }: { store: Store }) {
             value={focused ? text : s.destination ? `${s.destination.city} (${s.destination.iata})` : ''}
             placeholder="City or airport"
             role="combobox" aria-expanded={open} aria-autocomplete="list"
-            onFocus={() => { setFocused(true); setText(''); setHighlight(0); setLoaded(false); set({ popover: 'to' }); }}
+            onFocus={() => {
+              setFocused(true); setText(''); setHighlight(0);
+              setSuggestions([]); setAnsweredText(null); set({ popover: 'to' });
+            }}
             onBlur={() => { setFocused(false); set(st => ({ popover: st.popover === 'to' ? null : st.popover })); }}
             onChange={e => { setText(e.target.value); setHighlight(0); set({ popover: 'to' }); }}
             onKeyDown={e => {
@@ -147,7 +158,24 @@ function DestinationField({ store }: { store: Store }) {
         )}
       </label>
       {open && (
-        <div className="popover popover-stretch scroll" role="listbox">
+        <div className={`popover popover-stretch scroll ${searching ? 'is-searching' : ''}`}
+          role="listbox" aria-busy={searching}
+        >
+          {searching && <div className="popover-progress" aria-hidden="true" />}
+          {searching && suggestions.length === 0 && (
+            <div className="suggestion-skeletons" aria-label="Searching">
+              {[0, 1, 2].map(row => (
+                <div key={row} className="suggestion-skeleton" style={{ animationDelay: `${row * 120}ms` }}>
+                  <span className="skeleton-dot" />
+                  <span className="grow column" style={{ gap: 6 }}>
+                    <span className="skeleton-bar" style={{ width: `${55 - row * 10}%`, height: 12 }} />
+                    <span className="skeleton-bar" style={{ width: `${40 - row * 5}%`, height: 10 }} />
+                  </span>
+                  <span className="skeleton-bar" style={{ width: 38, height: 20 }} />
+                </div>
+              ))}
+            </div>
+          )}
           {suggestions.map((place, i) => (
             <button type="button" key={place.iata} role="option" aria-selected={i === highlight}
               className={`option option-rich ${i === highlight ? 'is-highlighted' : ''}`}
@@ -156,13 +184,25 @@ function DestinationField({ store }: { store: Store }) {
               <Icon name="location_on" size={20} className="muted" />
               <span className="grow column">
                 <span className="strong">{place.city}, {place.country}</span>
-                <span className="subtle">{place.name} Airport</span>
+                <span className="subtle">{/airport/i.test(place.name) ? place.name : `${place.name} Airport`}</span>
               </span>
               <span className="code-badge">{place.iata}</span>
             </button>
           ))}
-          {loaded && suggestions.length === 0 && (
-            <div className="popover-note">No airports match “{text}”. Try a city name or a 3-letter code.</div>
+          {!searching && failed && (
+            <div className="popover-note">
+              Couldn’t load suggestions.{' '}
+              <button type="button" className="link-button"
+                onMouseDown={e => { e.preventDefault(); setAnsweredText(null); setRetryCount(n => n + 1); }}
+              >Try again</button>
+            </div>
+          )}
+          {!searching && !failed && suggestions.length === 0 && (
+            <div className="popover-note">
+              {text.trim().length < 2
+                ? 'Type a city, airport or 3-letter code.'
+                : `No airports match “${text}”. Try a city name or a 3-letter code.`}
+            </div>
           )}
         </div>
       )}

@@ -515,3 +515,40 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
 .month-hint { font-size: 12px; }
 .whole-span { align-self: flex-start; }
 .chip.month.is-between { background: var(--accent-faint); }
+
+/* Destination suggestions: a sliding bar while a lookup is in flight,
+   shimmering placeholder rows before the first answer, and dimmed rows
+   while older answers wait to be replaced. */
+@keyframes popover-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+@keyframes suggestion-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.popover-progress {
+  position: sticky; top: -6px; height: 3px; margin: -6px -6px 3px; overflow: hidden;
+  border-radius: 14px 14px 0 0; background: var(--accent-soft); z-index: 1;
+}
+.popover-progress::after {
+  content: ''; position: absolute; inset: 0; width: 40%;
+  background: var(--accent); border-radius: 3px;
+  animation: popover-progress-slide 1s ease-in-out infinite;
+}
+.popover.is-searching .option-rich { opacity: .45; transition: opacity .15s; }
+.suggestion-skeleton {
+  display: flex; align-items: center; gap: 12px; padding: 11px 10px;
+  animation: ib-pulse 1.2s ease-in-out infinite;
+}
+.suggestion-skeleton .skeleton-bar,
+.suggestion-skeleton .skeleton-dot {
+  background: linear-gradient(90deg, var(--line) 30%, #f6f7fa 50%, var(--line) 70%);
+  background-size: 200% 100%; animation: suggestion-shimmer 1.3s linear infinite;
+}
+.skeleton-dot { width: 20px; height: 20px; border-radius: 50%; flex: none; }
+@media (prefers-reduced-motion: reduce) {
+  .popover-progress::after { animation: none; width: 100%; opacity: .5; }
+  .suggestion-skeleton, .suggestion-skeleton .skeleton-bar,
+  .suggestion-skeleton .skeleton-dot { animation: none; }
+}
