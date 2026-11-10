@@ -60,7 +60,8 @@ export class TravelpayoutsProvider implements FareProvider {
     this.options = {
       markets: 'auto', currency: 'EUR', maxPages: 2, pageSize: 1000, timeoutMs: 15_000,
       baseUrl: 'https://api.travelpayouts.com', linkBaseUrl: 'https://www.aviasales.com',
-      fetchImpl: fetch, ...options,
+      // Wrapped: Workers throw "Illegal invocation" when fetch is called as a method.
+      fetchImpl: (input, init) => fetch(input, init), ...options,
     };
   }
 
