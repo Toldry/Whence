@@ -13,6 +13,9 @@ export interface InboundQuery {
   flexKind?: FlexKind;
   /** Trip length in days, flex_kind=custom only. */
   length?: number;
+  /** YYYY-MM-DD, flex mode only, optional: earliest and latest departure within `month`. */
+  departFrom?: string;
+  departTo?: string;
   /** YYYY-MM-DD, exact mode only. */
   depart?: string;
   /** YYYY-MM-DD, exact round trips only. */

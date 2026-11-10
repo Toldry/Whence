@@ -4,8 +4,8 @@ import type { Destination } from '../data/places';
 import { addDays, formatDay, formatMonth } from '../lib/format';
 import type { Store } from '../state';
 import { OriginField, type AirportCounts } from './OriginPicker';
-import { upcomingMonths } from '../state';
-import { Dropdown, Icon, OptionList, PrimaryButton } from './ui';
+import { daysInMonth, departWindow, upcomingMonths } from '../state';
+import { DualRange, Dropdown, Icon, OptionList, PrimaryButton } from './ui';
 
 const CABINS = ['Economy', 'Premium economy', 'Business', 'First'] as const;
 
@@ -175,11 +175,20 @@ function DatesField({ store }: { store: Store }) {
   const months = useMemo(() => upcomingMonths(), []);
   const round = s.trip === 'round';
   const today = new Date().toISOString().slice(0, 10);
+  const lastDay = daysInMonth(s.month);
+  const narrowed = departWindow(s);
+  const fromDay = Math.min(s.departFrom, lastDay);
+  const toDay = Math.min(Math.max(s.departTo, fromDay), lastDay);
+  const monthShort = formatMonth(s.month, 'short');
+  // "Weekend in November 2026", or "Weekend, 12–23 Nov" once the departure days are narrowed.
+  const when = narrowed
+    ? `, ${fromDay === toDay ? fromDay : `${fromDay}–${toDay}`} ${monthShort}`
+    : ` in ${formatMonth(s.month)}`;
   const value = s.dateMode === 'flex'
-    ? !round ? `Any day in ${formatMonth(s.month)}`
-      : s.flexKind === 'weekend' ? `Weekend in ${formatMonth(s.month)}`
-      : s.flexKind === 'week' ? `A week in ${formatMonth(s.month)}`
-        : `${s.length} ${s.length === 1 ? 'day' : 'days'} in ${formatMonth(s.month)}`
+    ? !round ? `Any day${when}`
+      : s.flexKind === 'weekend' ? `Weekend${when}`
+      : s.flexKind === 'week' ? `A week${when}`
+        : `${s.length} ${s.length === 1 ? 'day' : 'days'}${when}`
     : round ? `${formatDay(s.depart)} – ${formatDay(s.returnDate)}` : formatDay(s.depart);
 
   return (
@@ -230,6 +239,27 @@ function DatesField({ store }: { store: Store }) {
                     <span className="month-year">{month.slice(0, 4)}</span>
                   </button>
                 ))}
+              </div>
+            </div>
+            <div className="control-group">
+              <div className="range-head">
+                <span className="control-label">Leave between</span>
+                <span className="day-range-value">
+                  {narrowed ? `${formatDay(narrowed.from)} – ${formatDay(narrowed.to)}` : `Any day in ${monthShort}`}
+                </span>
+              </div>
+              <DualRange min={1} max={lastDay} low={fromDay} high={toDay}
+                lowLabel="Earliest departure day" highLabel="Latest departure day"
+                // The month's last day means "to the end", so the range still fits a longer month.
+                onChange={(low, high) => set({ departFrom: low, departTo: high >= lastDay ? 31 : high })} />
+              <div className="range-scale">
+                <span>1 {monthShort}</span>
+                {narrowed && (
+                  <button type="button" className="link-button" onClick={() => set({ departFrom: 1, departTo: 31 })}>
+                    Whole month
+                  </button>
+                )}
+                <span>{lastDay} {monthShort}</span>
               </div>
             </div>
           </>

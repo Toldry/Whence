@@ -17,6 +17,8 @@ Field names follow the Travelpayouts / Aviasales Data API where they map cleanly
 | `month`       | flex     | `2027-03`    | YYYY-MM                                            |
 | `flex_kind`   | flex     | `weekend`    | `weekend`, `week`, or `custom`                     |
 | `length`      | custom   | `5`          | trip length in days, 1–31                          |
+| `depart_from` | no, flex | `2027-03-12` | earliest departure, YYYY-MM-DD within `month`      |
+| `depart_to`   | no, flex | `2027-03-23` | latest departure, YYYY-MM-DD within `month`        |
 | `depart`      | exact    | `2027-03-12` | YYYY-MM-DD                                         |
 | `return`      | exact    | `2027-03-15` | YYYY-MM-DD, round trips only                       |
 

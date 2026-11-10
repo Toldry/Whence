@@ -59,3 +59,29 @@ export function ChipButton({ active, onClick, children }: { active: boolean; onC
 export function PrimaryButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
   return <button type="button" className="primary-button" onClick={onClick}>{children}</button>;
 }
+
+/** Two thumbs on one track, for picking an inclusive [low, high] range of whole numbers. */
+export function DualRange({ min, max, low, high, onChange, lowLabel, highLabel }: {
+  min: number;
+  max: number;
+  low: number;
+  high: number;
+  onChange(low: number, high: number): void;
+  lowLabel: string;
+  highLabel: string;
+}) {
+  const span = Math.max(1, max - min);
+  const percent = (value: number) => ((value - min) / span) * 100;
+  return (
+    <div className="dual-range">
+      <div className="dual-range-track" />
+      <div className="dual-range-fill" style={{ left: `${percent(low)}%`, right: `${100 - percent(high)}%` }} />
+      <input type="range" min={min} max={max} value={low} aria-label={lowLabel}
+        // When both thumbs sit at the right end, the low one must be on top to be draggable.
+        className={low >= max ? 'is-top' : ''}
+        onChange={e => onChange(Math.min(Number(e.target.value), high), high)} />
+      <input type="range" min={min} max={max} value={high} aria-label={highLabel}
+        onChange={e => onChange(low, Math.max(Number(e.target.value), low))} />
+    </div>
+  );
+}

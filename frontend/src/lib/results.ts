@@ -38,6 +38,8 @@ export interface ResultFilters {
   maxPrice: number | null;
   airlines: string[];
   maxDurationHours: number | null;
+  /** Inclusive YYYY-MM-DD bounds on the departure date; null or absent allows any. */
+  departWindow?: { from: string; to: string } | null;
 }
 
 export interface ResultContext {
@@ -125,6 +127,10 @@ export function computeRows(ctx: ResultContext, filters: ResultFilters): OriginR
   const groundByOrigin = new Map<string, ReturnType<typeof groundFor>>();
   for (const option of fareOptions(ctx)) {
     if (!inScope(option.airport, filters.scope)) continue;
+    if (filters.departWindow) {
+      const departDate = option.fare.departure_at.slice(0, 10);
+      if (departDate < filters.departWindow.from || departDate > filters.departWindow.to) continue;
+    }
     if (filters.stops === '0' && option.fare.transfers > 0) continue;
     if (filters.stops === '1' && option.fare.transfers > 1) continue;
     const iata = option.airport.iata;

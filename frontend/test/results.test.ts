@@ -124,3 +124,16 @@ describe('date sort', () => {
     expect(rows.sort(SORTERS.date).map(r => r.flight)).toEqual([50, 90, 10]);
   });
 });
+
+describe('departure window', () => {
+  it('drops fares that leave outside the window before picking the cheapest', () => {
+    const windowed: InboundResponse = {
+      ...response,
+      fares: [{ ...fare('LYS', 50), departure_at: '2027-03-03' }, fare('LYS', 126)],
+    };
+    const lyon = (departWindow: ResultFilters['departWindow']) =>
+      computeRows(ctx({ response: windowed }), { ...noFilters, departWindow }).find(r => r.airport.iata === 'LYS')!;
+    expect(lyon(null).flight).toBe(50);
+    expect(lyon({ from: '2027-03-10', to: '2027-03-20' }).flight).toBe(126);
+  });
+});

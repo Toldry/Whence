@@ -111,6 +111,7 @@ function pickDates(query: InboundQuery, random: () => number): [string, string |
   for (let d = 1; d <= daysInMonth; d++) {
     const date = isoDate(year, monthIndex, d);
     if (date < earliest) continue;
+    if ((query.departFrom && date < query.departFrom) || (query.departTo && date > query.departTo)) continue;
     if (wantedWeekday < 0 || new Date(`${date}T00:00:00Z`).getUTCDay() === wantedWeekday) candidates.push(date);
   }
   const depart = candidates.length ? candidates[Math.floor(random() * candidates.length)] : earliest;

@@ -46,12 +46,33 @@ export function parseInboundQuery(params: URLSearchParams): ParseResult {
   if (!MONTH_PATTERN.test(month)) return { ok: false, message: 'month must be YYYY-MM' };
   const flexKind = pickEnum<FlexKind>(params.get('flex_kind'), ['weekend', 'week', 'custom'], 'weekend');
   if (!flexKind) return { ok: false, message: 'flex_kind must be "weekend", "week" or "custom"' };
-  if (flexKind !== 'custom') return { ok: true, query: { destination, trip, dateMode, month, flexKind } };
+  const departWindow = parseDepartWindow(params, month);
+  if (typeof departWindow === 'string') return { ok: false, message: departWindow };
+  if (flexKind !== 'custom') return { ok: true, query: { destination, trip, dateMode, month, flexKind, ...departWindow } };
   const length = Number(params.get('length'));
   if (!Number.isInteger(length) || length < 1 || length > 31) {
     return { ok: false, message: 'length must be a whole number of days, 1 to 31' };
   }
-  return { ok: true, query: { destination, trip, dateMode, month, flexKind, length } };
+  return { ok: true, query: { destination, trip, dateMode, month, flexKind, length, ...departWindow } };
+}
+
+/** Optional depart_from / depart_to, each a date inside `month`; an error message when invalid. */
+function parseDepartWindow(
+  params: URLSearchParams, month: string,
+): { departFrom?: string; departTo?: string } | string {
+  const bounds: { departFrom?: string; departTo?: string } = {};
+  for (const [name, key] of [['depart_from', 'departFrom'], ['depart_to', 'departTo']] as const) {
+    const value = params.get(name);
+    if (value === null || value === '') continue;
+    if (!isValidDate(value) || !value.startsWith(month + '-')) {
+      return `${name} must be a date, YYYY-MM-DD, within month`;
+    }
+    bounds[key] = value;
+  }
+  if (bounds.departFrom && bounds.departTo && bounds.departTo < bounds.departFrom) {
+    return 'depart_to must not be before depart_from';
+  }
+  return bounds;
 }
 
 /** A stable cache key: the same search always maps to the same string. */
@@ -59,6 +80,7 @@ export function queryCacheKey(query: InboundQuery): string {
   return [
     query.destination, query.trip, query.dateMode, query.month ?? '', query.flexKind ?? '',
     query.length ?? '', query.depart ?? '', query.return ?? '',
+    query.departFrom ?? '', query.departTo ?? '',
   ].join('|');
 }
 
@@ -87,6 +109,8 @@ export function fitsTripShape(
     return departDate === query.depart && (query.trip === 'oneway' || returnDate === query.return);
   }
   if (!departDate.startsWith(query.month + '-')) return false;
+  if (query.departFrom && departDate < query.departFrom) return false;
+  if (query.departTo && departDate > query.departTo) return false;
   if (query.flexKind === 'weekend' && !WEEKEND_DEPART_DAYS.has(dayOfWeek(departDate))) return false;
   if (query.trip === 'oneway' || !returnDate) return true;
 

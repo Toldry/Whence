@@ -14,6 +14,8 @@ export function createHttpFareSource(baseUrl: string): FareSource {
         params.set('month', query.month);
         params.set('flex_kind', query.flexKind);
         if (query.flexKind === 'custom') params.set('length', String(query.length));
+        if (query.departFrom) params.set('depart_from', query.departFrom);
+        if (query.departTo) params.set('depart_to', query.departTo);
       } else {
         params.set('depart', query.depart);
         if (query.trip === 'round') params.set('return', query.returnDate);

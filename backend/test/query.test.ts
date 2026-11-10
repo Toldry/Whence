@@ -68,3 +68,23 @@ test('exact dates must match, and past departures are dropped', () => {
   const past = { ...weekend, month: '2026-11' };
   assert.ok(!fitsTripShape(past, '2026-11-06', '2026-11-08', today));
 });
+
+test('parses an optional departure window inside the month', () => {
+  const result = parse('destination=LIS&month=2027-03&depart_from=2027-03-12&depart_to=2027-03-23');
+  assert.ok(result.ok);
+  assert.equal(result.query.departFrom, '2027-03-12');
+  assert.equal(result.query.departTo, '2027-03-23');
+  for (const qs of [
+    'destination=LIS&month=2027-03&depart_from=2027-04-01',
+    'destination=LIS&month=2027-03&depart_to=2027-03-32',
+    'destination=LIS&month=2027-03&depart_from=2027-03-20&depart_to=2027-03-10',
+  ]) assert.equal(parse(qs).ok, false, qs);
+});
+
+test('the departure window narrows flexible fares and the cache key', () => {
+  const narrowed = { ...weekend, departFrom: '2027-03-10', departTo: '2027-03-20' };
+  assert.ok(fitsTripShape(narrowed, '2027-03-12', '2027-03-14', today));
+  assert.ok(!fitsTripShape(narrowed, '2027-03-05', '2027-03-07', today));
+  assert.ok(!fitsTripShape(narrowed, '2027-03-26', '2027-03-28', today));
+  assert.notEqual(queryCacheKey(weekend), queryCacheKey(narrowed));
+});

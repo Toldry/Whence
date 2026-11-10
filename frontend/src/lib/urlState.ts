@@ -23,6 +23,8 @@ const TRANSIENT_KEYS = new Set<keyof AppState>([
 const PARAM_NAME: Partial<Record<keyof AppState, string>> = {
   destination: 'to',
   returnDate: 'return',
+  departFrom: 'dayFrom',
+  departTo: 'dayTo',
   maxPrice: 'maxprice',
   maxDurationHours: 'maxhours',
   includeGround: 'ground',
@@ -36,6 +38,8 @@ const ALLOWED: Partial<Record<string, (value: string) => boolean>> = {
   flexKind: v => v === 'weekend' || v === 'week' || v === 'custom',
   month: v => upcomingMonths().includes(v),
   depart: isIsoDate,
+  departFrom: isDayOfMonth,
+  departTo: isDayOfMonth,
   returnDate: isIsoDate,
   stops: v => v === 'any' || v === '0' || v === '1',
   sort: v => v in SORTERS,
@@ -59,6 +63,10 @@ const HOME_EXTRA = ['country', 'lat', 'lon', 'iata'] as const;
 
 function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function isDayOfMonth(value: string): boolean {
+  return /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 31;
 }
 
 function paramName(key: keyof AppState): string {

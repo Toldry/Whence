@@ -8,7 +8,7 @@ import {
   STALE_LIST_HOURS, type ResultContext, type ResultFilters,
 } from './lib/results';
 import { useInboundSearch } from './lib/useInboundSearch';
-import { initialState, scopeFromState, upcomingMonths, type AppState, type PopoverKey, type StatePatch, type Store } from './state';
+import { departWindow, initialState, scopeFromState, upcomingMonths, type AppState, type PopoverKey, type StatePatch, type Store } from './state';
 import { TIERS } from './theme';
 import { FilterBar, type FilterRanges } from './components/FilterBar';
 import { MapPanel } from './components/MapPanel';
@@ -62,10 +62,12 @@ export function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, [set]);
 
+  const departDays = departWindow(s);
   const query: InboundQuery | null = s.destination ? {
     destination: s.destination.iata, trip: s.trip, dateMode: s.dateMode, month: s.month,
     // Trip length means nothing one way, so ask for every departure day in the month.
     flexKind: s.trip === 'oneway' ? 'week' : s.flexKind, length: s.length, depart: s.depart, returnDate: s.returnDate,
+    ...(departDays ? { departFrom: departDays.from, departTo: departDays.to } : {}),
   } : null;
   const search = useInboundSearch(query);
 
@@ -87,6 +89,8 @@ export function App() {
   const filters: ResultFilters = {
     scope: scopeFromState(s.from), stops: s.stops, maxPrice: s.maxPrice,
     airlines: s.airlines, maxDurationHours: s.maxDurationHours,
+    // The back end narrows by these days too; filtering here keeps an older back end honest.
+    departWindow: departDays,
   };
   const sortKey = s.sort === 'total' && !context.home ? 'price' : s.sort;
   const rows = computeRows(context, filters).sort(SORTERS[sortKey]);
@@ -229,6 +233,9 @@ function emptyStatus(
   const months = upcomingMonths();
   const next = months[(months.indexOf(s.month) + 1) % months.length];
   const suggestions: EmptySuggestion[] = [];
+  if (departWindow(s)) {
+    suggestions.push({ label: `Any day in ${formatMonth(s.month)}`, note: 'whole month', pick: () => set({ departFrom: 1, departTo: 31 }) });
+  }
   if (s.dateMode === 'exact') suggestions.push({ label: 'Use flexible dates', note: s.trip === 'round' ? 'any weekend' : 'any day', pick: () => set({ dateMode: 'flex' }) });
   suggestions.push({ label: `Try ${formatMonth(next)}`, note: 'next month', pick: () => set({ dateMode: 'flex', month: next }) });
   if (s.trip === 'round' && (s.flexKind !== 'custom' || s.dateMode === 'exact')) {

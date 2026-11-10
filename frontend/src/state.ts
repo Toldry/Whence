@@ -29,6 +29,9 @@ export interface AppState {
   flexKind: FlexKind;
   month: string;
   length: number;
+  /** First and last allowed departure day of `month` (flex mode); 1 and 31 mean the whole month. */
+  departFrom: number;
+  departTo: number;
   depart: string;
   returnDate: string;
   adults: number;
@@ -69,6 +72,33 @@ export function upcomingMonths(today = new Date()): string[] {
   });
 }
 
+export function daysInMonth(month: string): number {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+}
+
+export interface DepartWindow {
+  /** YYYY-MM-DD, inclusive. */
+  from: string;
+  to: string;
+}
+
+/**
+ * The flexible-dates departure window as dates, or null when it spans the whole month
+ * (or the dates are exact). Days past the month's end are clamped to its last day.
+ */
+export function departWindow(
+  s: Pick<AppState, 'dateMode' | 'month' | 'departFrom' | 'departTo'>,
+): DepartWindow | null {
+  if (s.dateMode !== 'flex') return null;
+  const last = daysInMonth(s.month);
+  const fromDay = Math.min(Math.max(1, s.departFrom), last);
+  const toDay = Math.min(Math.max(fromDay, s.departTo), last);
+  if (fromDay <= 1 && toDay >= last) return null;
+  const day = (n: number) => `${s.month}-${String(n).padStart(2, '0')}`;
+  return { from: day(fromDay), to: day(toDay) };
+}
+
 export function scopeFromState(from: FromState): OriginScope {
   switch (from.type) {
     // Nothing picked yet means no limit, so opening a tab never empties the list.
@@ -88,6 +118,7 @@ export function initialState(): AppState {
       type: 'anywhere', regions: [], countries: [], city: 'Paris', cityLat: 48.857, cityLon: 2.352, radiusKm: 600,
     },
     trip: 'round', dateMode: 'flex', flexKind: 'weekend', month, length: 5,
+    departFrom: 1, departTo: 31,
     depart: `${month}-12`, returnDate: `${month}-15`,
     adults: 1, children: 0, infants: 0, cabin: 'Economy',
     stops: 'any', maxPrice: null, airlines: [], maxDurationHours: null,
