@@ -1,7 +1,7 @@
 # Whence back end
 
 The API behind Whence: "every origin airport with a cached fare to one destination".
-It serves the contract in `contracts/inbound-api.md` (in the project files).
+It serves the contract in [`docs/inbound-api.md`](../docs/inbound-api.md).
 
 - **Stack:** Node.js 22.18+ running TypeScript directly (built-in type stripping).
   No runtime dependencies, no build step. `typescript` is a dev dependency for type checks only.

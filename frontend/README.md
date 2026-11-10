@@ -13,7 +13,7 @@ npm install
 npm run dev          # http://localhost:5173, uses the built-in mock fare source
 ```
 
-To use the back end (see `/mnt/project-files/backend/`, serves `http://localhost:8787`):
+To use the back end (see [`../backend/`](../backend/), serves `http://localhost:8787`):
 
 ```sh
 VITE_API_BASE=http://localhost:8787 npm run dev
@@ -40,7 +40,7 @@ Demo the edge states with the mock: `?mock=error`, `?mock=empty`, `?mock=slow`.
 | `src/data/geo.ts` | Distance, flight-time and ground-transport estimates |
 | `src/components/` | Search panel, filter bar, results list, map panel, Leaflet controller |
 
-The contract lives in `/mnt/project-files/contracts/inbound-api.md` (v0.2).
+The contract lives in [`docs/inbound-api.md`](../docs/inbound-api.md) (v0.2).
 
 ## Known estimates
 

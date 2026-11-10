@@ -1,4 +1,4 @@
-// Shapes of the public API (see contracts/inbound-api.md) and the provider seam.
+// Shapes of the public API (see docs/inbound-api.md) and the provider seam.
 
 export type TripType = 'round' | 'oneway';
 export type DateMode = 'flex' | 'exact';

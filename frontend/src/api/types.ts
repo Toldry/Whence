@@ -1,6 +1,6 @@
 /**
  * The contract between the front end and any fare source (mock or HTTP).
- * Mirrors /mnt/project-files/contracts/inbound-api.md (v0.2).
+ * Mirrors docs/inbound-api.md (v0.2).
  * Field names follow the Travelpayouts / Aviasales Data API where they map cleanly.
  */
 
