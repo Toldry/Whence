@@ -34,14 +34,15 @@ export function Dropdown({ open, onToggle, trigger, children, align = 'left', wi
   );
 }
 
+/** Each option is [value, label] or [value, label, leading icon name]. */
 export function OptionList<T extends string>({ options, value, onPick }: {
-  options: [T, string][]; value: T; onPick(value: T): void;
+  options: [T, string, string?][]; value: T; onPick(value: T): void;
 }) {
   return (
     <div className="option-list">
-      {options.map(([key, label]) => (
+      {options.map(([key, label, icon]) => (
         <button type="button" key={key} className={`option ${key === value ? 'is-selected' : ''}`} onClick={() => onPick(key)}>
-          <span>{label}</span>
+          <span className="option-label">{icon && <Icon name={icon} className="muted" />}{label}</span>
           {key === value && <Icon name="check" className="accent" />}
         </button>
       ))}

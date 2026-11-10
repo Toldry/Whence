@@ -24,10 +24,12 @@ export function SearchPanel({ store, countries, matchCount }: {
         <Dropdown
           open={s.popover === 'trip'} onToggle={() => togglePopover('trip')} width={200}
           triggerClassName="ghost-button"
-          trigger={<><Icon name="sync_alt" className="muted" />{s.trip === 'round' ? 'Round trip' : 'One way'}<Icon name="expand_more" className="muted" /></>}
+          trigger={<>
+            <Icon name={s.trip === 'round' ? 'sync_alt' : 'arrow_right_alt'} className="muted" />
+            {s.trip === 'round' ? 'Round trip' : 'One way'}<Icon name="expand_more" className="muted" /></>}
         >
           <OptionList
-            options={[['round', 'Round trip'], ['oneway', 'One way']]} value={s.trip}
+            options={[['round', 'Round trip', 'sync_alt'], ['oneway', 'One way', 'arrow_right_alt']]} value={s.trip}
             onPick={trip => set({ trip, popover: null })}
           />
         </Dropdown>

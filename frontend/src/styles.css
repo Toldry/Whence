@@ -154,6 +154,7 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
 }
 .option:hover, .option.is-highlighted { background: var(--hover); }
 .option.is-selected { background: color-mix(in srgb, var(--accent) 8%, #fff); }
+.option-label { display: inline-flex; align-items: center; gap: 10px; }
 .option-rich { justify-content: flex-start; gap: 12px; padding: 9px 10px; }
 .currency-code { width: 38px; }
 .subtle-left { color: var(--ink-3); }
