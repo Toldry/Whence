@@ -113,7 +113,7 @@ export function App() {
         <div className="brand">
           <div className="brand-mark"><div /></div>
           <span className="brand-name">whence</span>
-          {usingMockData && <span className="mock-badge" title="Prices come from the built-in mock. Set VITE_API_BASE to use the back end.">demo data</span>}
+          {usingMockData && <span className="mock-badge" title="Sample prices generated in your browser, not real fares.">demo data</span>}
         </div>
         <div className="grow" />
         <Dropdown open={s.popover === 'currency'} onToggle={() => store.togglePopover('currency')} align="right" width={230}
