@@ -64,7 +64,13 @@ the client scales for cabin and passenger mix (an estimate, labelled as such).
 - `airlines`: display names (back end maps IATA carrier codes to names). **May be empty.**
 - `found_at`: ISO 8601 UTC, **or `null`** when the upstream does not say (show "age unknown"). Expected to be 2–7 days old.
 - `link`: absolute URL for "Check live price".
-- `airports`: metadata for every `origin` that appears in `fares`, plus the destination.
+- `self_transfer`: optional, `null` or absent for ordinary fares. Set when the back end
+  joined two separately cached nonstop tickets at a hub (one-way searches only, for
+  origins with no cached fare of one stop or fewer). No airline protects the connection.
+  `{ "via": "MAD", "layover_minutes": 190, "legs": [leg, leg] }`, where each leg is
+  `{ "origin", "destination", "departure_at" (local time with offset), "duration_minutes",
+  "price", "airlines", "link" }`. The fare's `price` is the sum of the legs, `transfers` is 1.
+- `airports`: metadata for every `origin` that appears in `fares`, every `self_transfer.via`, plus the destination.
 
 - `origin` may be a city code (e.g. `LON`) when the upstream only knows the city; its
   `airports` entry then has the city-centre coordinates and a name like "London (all airports)".

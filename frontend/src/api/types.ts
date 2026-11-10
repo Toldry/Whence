@@ -41,6 +41,26 @@ export interface Fare {
   /** ISO 8601 UTC timestamp of when the price was cached; null when unknown. */
   found_at: string | null;
   link: string;
+  /** Two separate tickets joined at a hub by the back end; no airline protects the connection. */
+  self_transfer?: SelfTransfer | null;
+}
+
+export interface SelfTransfer {
+  /** Hub airport, present in `airports`. */
+  via: string;
+  layover_minutes: number;
+  legs: SelfTransferLeg[];
+}
+
+export interface SelfTransferLeg {
+  origin: string;
+  destination: string;
+  /** Local departure time with offset. */
+  departure_at: string;
+  duration_minutes: number | null;
+  price: number;
+  airlines: string[];
+  link: string;
 }
 
 export interface AirportInfo {

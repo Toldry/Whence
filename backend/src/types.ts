@@ -36,6 +36,31 @@ export interface Fare {
   /** When the price was seen, ISO 8601 UTC; null when the upstream does not say. */
   found_at: string | null;
   link: string;
+  /**
+   * Set when the fare is two separate tickets joined at a hub by Whence, not an
+   * itinerary an airline sells. Absent or null for ordinary fares.
+   */
+  self_transfer?: SelfTransfer | null;
+}
+
+export interface SelfTransfer {
+  /** The hub airport where the traveller changes planes. */
+  via: string;
+  /** Time between landing at the hub and the next departure. */
+  layover_minutes: number;
+  /** The two tickets, in order. */
+  legs: SelfTransferLeg[];
+}
+
+export interface SelfTransferLeg {
+  origin: string;
+  destination: string;
+  /** Local departure time with offset, e.g. 2026-11-25T16:20:00+01:00. */
+  departure_at: string;
+  duration_minutes: number | null;
+  price: number;
+  airlines: string[];
+  link: string;
 }
 
 export interface AirportInfo {

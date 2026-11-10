@@ -36,3 +36,18 @@ test('drops fares that do not fit, cannot be plotted, or come from the destinati
   assert.deepEqual(result.fares.map((f) => f.origin), ['BCN']);
   assert.deepEqual(Object.keys(result.airports).sort(), ['BCN', 'LIS']);
 });
+
+test('keeps the cheapest fare with one stop or fewer, and the self-transfer hub airport', () => {
+  const selfTransfer = {
+    ...fare('ROM', 300, 1),
+    self_transfer: { via: 'MAD', layover_minutes: 150, legs: [] },
+  };
+  const raw: InboundResult = {
+    destination: 'LIS', currency: 'EUR',
+    fares: [fare('ROM', 200, 2), selfTransfer],
+    airports: { LIS: airport('LIS'), ROM: airport('ROM'), MAD: airport('MAD') },
+  };
+  const result = finalizeResult(raw, query, '2026-11-10');
+  assert.deepEqual(result.fares.map((f) => `${f.origin}:${f.price}`), ['ROM:200', 'ROM:300']);
+  assert.ok(result.airports.MAD);
+});

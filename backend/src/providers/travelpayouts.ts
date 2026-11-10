@@ -1,6 +1,7 @@
 import { UpstreamError } from '../types.ts';
 import type { AirportInfo, Fare, FareProvider, InboundQuery, InboundResult, Place } from '../types.ts';
 import type { ReferenceData } from './reference-data.ts';
+import { pairSelfTransfers, toLeg, type PairedTrip } from './self-transfer.ts';
 
 /**
  * Travelpayouts / Aviasales Data API (cached prices, free with a token).
@@ -41,7 +42,18 @@ export interface TravelpayoutsOptions {
   baseUrl?: string;
   linkBaseUrl?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * One-way searches also join cached nonstops into a hub with the hub's nonstops
+   * to the destination (separate tickets). 0 turns this off.
+   */
+  selfTransferHubs?: number;
+  /** Connection window at the hub for self-transfers, in minutes. */
+  minConnectionMinutes?: number;
+  maxConnectionMinutes?: number;
 }
+
+/** Hubs this close to the destination add little: few routes feed them. */
+const MIN_HUB_DISTANCE_KM = 300;
 
 interface PricesForDatesRow {
   origin: string; destination: string; origin_airport?: string; destination_airport?: string;
@@ -67,7 +79,8 @@ export class TravelpayoutsProvider implements FareProvider {
       markets: 'auto', currency: 'EUR', maxPages: 2, pageSize: 1000, timeoutMs: 15_000,
       baseUrl: 'https://api.travelpayouts.com', linkBaseUrl: 'https://www.aviasales.com',
       // Wrapped: Workers throw "Illegal invocation" when fetch is called as a method.
-      fetchImpl: (input, init) => fetch(input, init), ...options,
+      fetchImpl: (input, init) => fetch(input, init),
+      selfTransferHubs: 10, minConnectionMinutes: 120, maxConnectionMinutes: 24 * 60, ...options,
     };
   }
 
@@ -98,9 +111,13 @@ export class TravelpayoutsProvider implements FareProvider {
       else latestRows.push(...result.value.rows);
     }
     const fares = this.mergeRows(query, datesRows, latestRows);
+    if (query.trip === 'oneway' && this.options.selfTransferHubs > 0) {
+      fares.push(...await this.selfTransferFares(query, markets[0]!, datesRows, fares, signal));
+    }
 
     const airports: Record<string, AirportInfo> = {};
-    for (const code of new Set([query.destination, ...fares.map((fare) => fare.origin)])) {
+    const codes = fares.flatMap((fare) => [fare.origin, ...(fare.self_transfer ? [fare.self_transfer.via] : [])]);
+    for (const code of new Set([query.destination, ...codes])) {
       const info = reference.describe(code);
       if (info) airports[code] = info;
     }
@@ -179,6 +196,87 @@ export class TravelpayoutsProvider implements FareProvider {
     return fares;
   }
 
+  /**
+   * Separate-ticket trips through the destination's farthest nonstop gateways, for
+   * origins that have no cached fare with one stop or fewer. A failed hub is skipped.
+   */
+  private async selfTransferFares(
+    query: InboundQuery, market: string, datesRows: PricesForDatesRow[], fares: Fare[], signal?: AbortSignal,
+  ): Promise<Fare[]> {
+    const reference = this.options.referenceData;
+    const destination = reference.describe(query.destination);
+    if (!destination) return [];
+    const hubs = [...new Set(datesRows
+      .filter((row) => (row.transfers ?? 0) === 0)
+      .map((row) => row.origin_airport || row.origin))]
+      .map((code) => ({ code, info: reference.describe(code) }))
+      .filter((hub) => hub.info && distanceKm(hub.info, destination) >= MIN_HUB_DISTANCE_KM)
+      .sort((a, b) => distanceKm(b.info!, destination) - distanceKm(a.info!, destination))
+      .slice(0, this.options.selfTransferHubs);
+    if (!hubs.length) return [];
+
+    const { departureAt } = this.dateParams(query);
+    const month = departureAt.slice(0, 7);
+    const settled = await Promise.allSettled(hubs.flatMap(({ code }) => [
+      // Every hub's cheapest nonstop per origin into it.
+      this.fetchPages<PricesForDatesRow>('/aviasales/v3/prices_for_dates', {
+        destination: code, departure_at: departureAt, one_way: 'true', direct: 'true', unique: 'true',
+        sorting: 'price', currency: this.options.currency.toLowerCase(), market,
+        limit: String(this.options.pageSize),
+      }, signal),
+      // Every cached nonstop date out of the hub; the month, so next-day connections count.
+      this.fetchPages<PricesForDatesRow>('/aviasales/v3/prices_for_dates', {
+        origin: code, destination: query.destination, departure_at: month, one_way: 'true', direct: 'true',
+        sorting: 'price', currency: this.options.currency.toLowerCase(), market,
+        limit: String(this.options.pageSize),
+      }, signal),
+    ]));
+    const feeders: PricesForDatesRow[] = [];
+    const onward: PricesForDatesRow[] = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.warn('[travelpayouts] self-transfer hub failed:', String(result.reason));
+        return;
+      }
+      (index % 2 === 0 ? feeders : onward).push(...result.value);
+    });
+
+    // Origins that already have a fare an airline sells with one stop or fewer.
+    const covered = new Set(fares.filter((fare) => fare.transfers <= 1)
+      .flatMap((fare) => [fare.origin, reference.cityCodeOf(fare.origin)]));
+    const destinationCity = reference.cityCodeOf(query.destination);
+    return pairSelfTransfers(feeders, onward, this.options)
+      .filter((trip) => !covered.has(trip.origin) && !covered.has(reference.cityCodeOf(trip.origin))
+        && reference.cityCodeOf(trip.origin) !== destinationCity)
+      .map((trip) => this.selfTransferFare(query, trip));
+  }
+
+  private selfTransferFare(query: InboundQuery, trip: PairedTrip): Fare {
+    const reference = this.options.referenceData;
+    const airlineName = (code: string) => reference.airlineName(code);
+    const legLink = (row: PricesForDatesRow) => this.withMarker(row.link
+      ? this.options.linkBaseUrl + (row.link.startsWith('/') ? '' : '/') + row.link
+      : this.searchLink(row.origin_airport || row.origin, row.destination_airport || row.destination,
+        datePart(row.departure_at), null));
+    const first = toLeg(trip.first, airlineName, legLink(trip.first));
+    const second = toLeg(trip.second, airlineName, legLink(trip.second));
+    const seen = [searchDateOf(trip.first.link), searchDateOf(trip.second.link)];
+    return {
+      origin: trip.origin,
+      destination: query.destination,
+      price: Math.round(trip.price),
+      transfers: 1,
+      airlines: [...new Set([...first.airlines, ...second.airlines])],
+      departure_at: trip.departDate,
+      return_at: null,
+      duration_minutes: trip.durationMinutes,
+      // The older sighting: the pair is only as fresh as its stalest leg.
+      found_at: seen.includes(null) ? null : seen.sort()[0]!,
+      link: this.withMarker(this.searchLink(trip.origin, query.destination, trip.departDate, null)),
+      self_transfer: { via: trip.via, layover_minutes: trip.layoverMinutes, legs: [first, second] },
+    };
+  }
+
   private marketsFor(destination: string): string[] {
     if (this.options.markets !== 'auto') return this.options.markets;
     const country = this.options.referenceData.describe(destination)?.country_code;
@@ -251,6 +349,15 @@ export class TravelpayoutsProvider implements FareProvider {
     url.searchParams.set('marker', this.options.marker);
     return url.toString();
   }
+}
+
+/** Great-circle distance, for ranking hubs. */
+function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180;
+  const dLat = radians(b.lat - a.lat);
+  const dLon = radians(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
 /** YYYY-MM-DD from an upstream date or timestamp (the local date as sent). */

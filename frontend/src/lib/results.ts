@@ -61,6 +61,8 @@ export interface FareOption {
   /** Flight price for the whole party, EUR. */
   flight: number;
   ageHours: number | null;
+  /** The hub when the fare is a self-transfer on separate tickets, else null. */
+  via: AirportInfo | null;
 }
 
 export interface OriginRow extends FareOption {
@@ -110,6 +112,7 @@ export function fareOptions(ctx: ResultContext): FareOption[] {
       durationMinutes: fare.duration_minutes ?? estimateFlightMinutes(km, fare.transfers),
       flight: fare.price * scale,
       ageHours: fare.found_at ? (ctx.now - Date.parse(fare.found_at)) / 3.6e6 : null,
+      via: fare.self_transfer ? response.airports[fare.self_transfer.via] ?? null : null,
     });
   }
   return options;

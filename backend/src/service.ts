@@ -49,7 +49,8 @@ export class InboundService {
 
 /**
  * Keeps fares that fit the query and can be plotted, then trims each origin
- * to its cheapest fare plus its cheapest nonstop (what the client shows).
+ * to its cheapest fare, cheapest nonstop and cheapest with at most one stop
+ * (what the client's stop filters can show).
  */
 export function finalizeResult(raw: InboundResult, query: InboundQuery, today: string): InboundResult {
   const fitting = raw.fares.filter((fare) =>
@@ -68,13 +69,16 @@ export function finalizeResult(raw: InboundResult, query: InboundQuery, today: s
     list.sort((a, b) => a.price - b.price || a.transfers - b.transfers);
     const cheapest = list[0]!;
     fares.push(cheapest);
-    const nonstop = list.find((fare) => fare.transfers === 0);
-    if (nonstop && nonstop !== cheapest) fares.push(nonstop);
+    for (const maxStops of [0, 1]) {
+      const fewStops = list.find((fare) => fare.transfers <= maxStops);
+      if (fewStops && !fares.includes(fewStops)) fares.push(fewStops);
+    }
   }
   fares.sort((a, b) => a.price - b.price);
 
   const airports: InboundResult['airports'] = {};
-  for (const code of [raw.destination, ...byOrigin.keys()]) {
+  const hubs = fares.flatMap((fare) => (fare.self_transfer ? [fare.self_transfer.via] : []));
+  for (const code of [raw.destination, ...byOrigin.keys(), ...hubs]) {
     const info = raw.airports[code];
     if (info) airports[code] = info;
   }

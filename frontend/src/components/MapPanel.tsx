@@ -5,7 +5,7 @@ import { STALE_ROW_HOURS, type OriginRow } from '../lib/results';
 import type { Store } from '../state';
 import { ACCENT, TIERS } from '../theme';
 import { InboundMap, type MapApi } from './InboundMap';
-import { dateRange, GROUND_MODE, stopsLabel, type ListStatus } from './ResultsList';
+import { dateRange, GROUND_MODE, SELF_TRANSFER_WARNING, stopsLabel, type ListStatus } from './ResultsList';
 import { Icon } from './ui';
 
 const CARD_WIDTH = 300;
@@ -109,7 +109,11 @@ function RouteCard({ row, focus, pinned, destination, home, money, round, captio
   const stale = row.ageHours !== null && row.ageHours >= STALE_ROW_HOURS;
 
   // Place above the marker, else below, else beside it.
-  const estimatedHeight = (home ? 300 : 225) + (row.nonstopAlternative ? 20 : 0) + (pinned ? 50 : 0);
+  const legs = row.via ? row.fare.self_transfer?.legs ?? [] : [];
+  // Leg prices scaled like the fare (cabin and party).
+  const legScale = row.fare.price > 0 ? row.flight / row.fare.price : 1;
+  const estimatedHeight = (home ? 300 : 225) + (row.nonstopAlternative ? 20 : 0) + (pinned ? 50 : 0)
+    + (legs.length ? 150 + (pinned ? 50 : 0) : 0);
   const clampX = (x: number) => Math.max(HALF_CARD, Math.min(focus.w - HALF_CARD, x));
   let top: number | null = focus.y - 22 - estimatedHeight;
   let left = clampX(focus.x);
@@ -132,12 +136,25 @@ function RouteCard({ row, focus, pinned, destination, home, money, round, captio
       </div>
       <div className="card-facts">
         <div><Icon name="schedule" size={16} className="faint" />
-          <span><span className={row.fare.transfers ? 'stops' : 'stops nonstop'}>{stopsLabel(row.fare.transfers)}</span> · {formatDuration(row.durationMinutes)}</span></div>
+          <span><span className={row.fare.transfers ? 'stops' : 'stops nonstop'}>{stopsLabel(row.fare.transfers)}</span>{row.via && <> in {row.via.city}</>} · {formatDuration(row.durationMinutes)}</span></div>
         {row.fare.airlines.length > 0 && <div><Icon name="flight" size={16} className="faint" /><span>{row.fare.airlines.join(', ')}</span></div>}
         <div><Icon name="calendar_month" size={16} className="faint" />
           <span>{row.fare.return_at ? dateRange(row.fare.departure_at, row.fare.return_at, '→') : `${dateRange(row.fare.departure_at, null)} · one way`}</span></div>
         {row.nonstopAlternative && <div className="subtle indent">Nonstop from {money(row.nonstopAlternative.flight)}</div>}
       </div>
+      {legs.length > 0 && row.via && row.fare.self_transfer && (
+        <div className="self-transfer-box">
+          <div className="self-transfer-head"><Icon name="warning" size={16} />Self-transfer on separate tickets</div>
+          <p>{SELF_TRANSFER_WARNING}</p>
+          {legs.map((leg, index) => (
+            <div key={index} className="card-line">
+              <span>{leg.origin} → {leg.destination} · {legTime(leg.departure_at)}{leg.airlines.length ? ` · ${leg.airlines.join(', ')}` : ''}</span>
+              <strong>{money(leg.price * legScale)}</strong>
+            </div>
+          ))}
+          <div className="subtle">{formatDuration(row.fare.self_transfer.layover_minutes)} to change planes in {row.via.city}</div>
+        </div>
+      )}
       {row.ground && mode && home ? (
         <div className="card-total">
           <div className="card-line"><span><Icon name="flight" size={15} className="muted" />Flight {row.airport.iata} → {destination.iata}</span><strong>{money(row.flight)}</strong></div>
@@ -154,11 +171,25 @@ function RouteCard({ row, focus, pinned, destination, home, money, round, captio
         <Icon name={stale ? 'warning' : 'history'} size={15} />
         {row.ageHours === null ? 'Price age unknown' : `Price found ${formatAge(row.ageHours)}`}{stale ? ' · may have changed' : ''}
       </div>
-      {pinned && (
+      {pinned && legs.length > 0 && legs.map((leg, index) => (
+        <a key={index} className="primary-button wide" href={leg.link} target="_blank" rel="noopener noreferrer">
+          Check ticket {index + 1}: {leg.origin} → {leg.destination}<Icon name="open_in_new" size={17} />
+        </a>
+      ))}
+      {pinned && !legs.length && (
         <a className="primary-button wide" href={row.fare.link} target="_blank" rel="noopener noreferrer">
           Check live price<Icon name="open_in_new" size={17} />
         </a>
       )}
     </div>
   );
+}
+
+/** "Wed 25 Nov, 16:20" in the airport's local time, as the upstream sends it. */
+function legTime(departureAt: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(departureAt);
+  if (!match) return departureAt;
+  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  const label = day.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return `${label}, ${match[4]}`;
 }

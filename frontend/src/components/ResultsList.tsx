@@ -118,9 +118,15 @@ export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBa
                     </div>
                     <div className="row-line">
                       <span className={row.fare.transfers ? 'stops' : 'stops nonstop'}>{stopsLabel(row.fare.transfers)}</span>
+                      {row.via && <> in {row.via.city}</>}
                       {' · '}{formatDuration(row.durationMinutes)}
                       {row.fare.airlines.length > 0 && <> · {row.fare.airlines.join(', ')}</>}
                     </div>
+                    {row.via && (
+                      <div className="self-transfer-note" title={SELF_TRANSFER_WARNING}>
+                        <Icon name="warning" size={15} />Self-transfer: connection not guaranteed
+                      </div>
+                    )}
                     <div className="row-meta">
                       <span>{dateRange(row.fare.departure_at, row.fare.return_at)}</span>
                       <span className="dot">·</span>
@@ -193,6 +199,10 @@ export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBa
     </aside>
   );
 }
+
+export const SELF_TRANSFER_WARNING = 'Whence joined two separate tickets here. No airline guarantees the '
+  + 'connection: if the first flight is late you may miss the second and have to pay for a new ticket. '
+  + 'Bags are not checked through, and you may need a transit visa to collect them and check in again.';
 
 export function stopsLabel(transfers: number): string {
   return transfers === 0 ? 'Nonstop' : transfers === 1 ? '1 stop' : `${transfers} stops`;
