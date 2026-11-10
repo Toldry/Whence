@@ -28,7 +28,10 @@ export interface Travellers {
 export interface ResultFilters {
   scope: OriginScope;
   stops: StopsFilter;
-  /** In EUR, after cabin and passenger scaling. */
+  /**
+   * In EUR, after cabin and passenger scaling. Caps the flight price, or the total
+   * trip cost (flight plus getting to the airport) when a home city is set.
+   */
   maxPrice: number | null;
   airlines: string[];
   maxDurationHours: number | null;
@@ -108,13 +111,24 @@ export function fareOptions(ctx: ResultContext): FareOption[] {
   return options;
 }
 
+/** Getting to `airport` from the home city for the whole party, both ways on round trips. */
+function groundFor(ctx: ResultContext, airport: AirportInfo): { ground: GroundEstimate | null; groundCost: number } {
+  if (!ctx.home) return { ground: null, groundCost: 0 };
+  const ground = estimateGround(ctx.home, airport);
+  return { ground, groundCost: ground.cost * (ctx.trip === 'round' ? 2 : 1) * groundPassengerFactor(ctx.travellers) };
+}
+
 export function computeRows(ctx: ResultContext, filters: ResultFilters): OriginRow[] {
   const byOrigin = new Map<string, FareOption[]>();
+  const groundByOrigin = new Map<string, ReturnType<typeof groundFor>>();
   for (const option of fareOptions(ctx)) {
     if (!inScope(option.airport, filters.scope)) continue;
     if (filters.stops === '0' && option.fare.transfers > 0) continue;
     if (filters.stops === '1' && option.fare.transfers > 1) continue;
-    if (filters.maxPrice != null && option.flight > filters.maxPrice) continue;
+    const iata = option.airport.iata;
+    if (!groundByOrigin.has(iata)) groundByOrigin.set(iata, groundFor(ctx, option.airport));
+    const { groundCost } = groundByOrigin.get(iata)!;
+    if (filters.maxPrice != null && option.flight + groundCost > filters.maxPrice) continue;
     if (filters.maxDurationHours != null && option.durationMinutes > filters.maxDurationHours * 60) continue;
     if (filters.airlines.length && !option.fare.airlines.some(a => filters.airlines.includes(a))) continue;
     const list = byOrigin.get(option.airport.iata) ?? [];
@@ -127,12 +141,7 @@ export function computeRows(ctx: ResultContext, filters: ResultFilters): OriginR
     options.sort((a, b) => a.flight - b.flight);
     const best = options[0];
     const nonstopAlternative = best.fare.transfers > 0 ? options.find(o => o.fare.transfers === 0) ?? null : null;
-    let ground: GroundEstimate | null = null;
-    let groundCost = 0;
-    if (ctx.home) {
-      ground = estimateGround(ctx.home, best.airport);
-      groundCost = ground.cost * (ctx.trip === 'round' ? 2 : 1) * groundPassengerFactor(ctx.travellers);
-    }
+    const { ground, groundCost } = groundByOrigin.get(best.airport.iata)!;
     const total = best.flight + groundCost;
     rows.push({ ...best, ground, groundCost, total, value: ctx.home ? total : best.flight, nonstopAlternative, tier: 0 });
   }

@@ -177,7 +177,8 @@ function filterRanges(ctx: ResultContext, filters: ResultFilters): FilterRanges 
   // The price slider tops out at the dearest row the other filters still allow,
   // so with "Nonstop only" on it does not stretch to a 3-stop fare nobody can see.
   const pricedRows = computeRows(ctx, { ...filters, maxPrice: null });
-  const priceMax = Math.max(50, Math.ceil(Math.max(0, ...pricedRows.map(r => r.flight)) / 10) * 10);
+  // With a home city set the price filter caps the total trip cost, so the range follows it.
+  const priceMax = Math.max(50, Math.ceil(Math.max(0, ...pricedRows.map(r => r.total)) / 10) * 10);
   const durationMax = Math.max(2, Math.ceil(Math.max(0, ...options.map(o => o.durationMinutes)) / 60));
   const airlineFrom: Record<string, number> = {};
   for (const o of options) {

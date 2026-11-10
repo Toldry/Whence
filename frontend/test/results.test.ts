@@ -42,6 +42,17 @@ describe('computeRows', () => {
     expect(lyon.total).toBe(116);
   });
 
+  it('caps the total trip cost, not just the flight, when a home city is set', () => {
+    const rows = computeRows(ctx({ home: HOME_BY_NAME.Lyon }), noFilters);
+    const lyon = rows.find(r => r.airport.iata === 'LYS')!;
+    const capped = computeRows(ctx({ home: HOME_BY_NAME.Lyon }), { ...noFilters, maxPrice: lyon.total - 1 });
+    expect(capped.find(r => r.airport.iata === 'LYS')).toBeUndefined();
+    expect(capped.every(r => r.total <= lyon.total - 1)).toBe(true);
+    // Without a home city the same cap only looks at the flight, so Lyon stays.
+    const flightOnly = computeRows(ctx(), { ...noFilters, maxPrice: lyon.total - 1 });
+    expect(flightOnly.find(r => r.airport.iata === 'LYS')).toBeDefined();
+  });
+
   it('filters by region and tolerates an unknown price age', () => {
     const rows = computeRows(ctx(), { ...noFilters, scope: { type: 'region', region: 'na' } });
     expect(rows.map(r => r.airport.iata)).toEqual(['JFK']);

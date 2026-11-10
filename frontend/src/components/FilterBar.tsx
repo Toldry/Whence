@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { HOMES } from '../data/places';
 import { formatMoney } from '../lib/format';
 import type { Store } from '../state';
 import { Dropdown, Icon, OptionList } from './ui';
 
 export interface FilterRanges {
-  /** Highest flight price across all fares, EUR, rounded up. */
+  /** Highest flight price (or total trip cost, with a home city set), EUR, rounded up. */
   priceMax: number;
   /** Longest flight in hours, rounded up. */
   durationMax: number;
@@ -19,6 +19,7 @@ export function FilterBar({ store, ranges }: { store: Store; ranges: FilterRange
   const { state: s, set, togglePopover } = store;
   const money = (v: number) => formatMoney(v, s.currency);
   const anyFilter = s.stops !== 'any' || s.maxPrice != null || s.airlines.length > 0 || s.maxDurationHours != null;
+  const priceLabel = s.includeGround ? 'Max total trip cost' : 'Max flight price';
   const chipClass = (on: boolean) => `chip chip-drop ${on ? 'is-active' : ''}`;
 
   return (
@@ -32,12 +33,12 @@ export function FilterBar({ store, ranges }: { store: Store; ranges: FilterRange
 
       <Dropdown open={s.popover === 'price'} onToggle={() => togglePopover('price')} width={300}
         triggerClassName={chipClass(s.maxPrice != null)}
-        trigger={<>{s.maxPrice != null ? `Up to ${money(s.maxPrice)}` : 'Price'}<Icon name="expand_more" /></>}>
+        trigger={<>{s.maxPrice != null ? `${s.includeGround ? 'Total up to' : 'Up to'} ${money(s.maxPrice)}` : 'Price'}<Icon name="expand_more" /></>}>
         <div className="popover-body roomy">
-          <div className="range-head"><span className="control-label">Max flight price</span>
+          <div className="range-head"><span className="control-label">{priceLabel}</span>
             <span className="strong tabular">{s.maxPrice != null ? money(s.maxPrice) : 'Any'}</span></div>
           <input type="range" min={20} max={ranges.priceMax} step={5} value={s.maxPrice ?? ranges.priceMax}
-            aria-label="Max flight price"
+            aria-label={priceLabel}
             onChange={e => { const v = Number(e.target.value); set({ maxPrice: v >= ranges.priceMax ? null : v }); }} />
           <div className="range-scale"><span>{money(20)}</span><span>{money(ranges.priceMax)}</span></div>
           <button type="button" className="link-button" onClick={() => set({ maxPrice: null, popover: null })}>Any price</button>
@@ -90,11 +91,14 @@ export function FilterBar({ store, ranges }: { store: Store; ranges: FilterRange
         aria-checked={s.includeGround}
         onClick={() => set(st => ({
           includeGround: !st.includeGround,
+          // The price limit switches between flight-only and total cost, so an old value would mislead.
+          maxPrice: null,
           sort: !st.includeGround ? 'total' : st.sort === 'total' ? 'price' : st.sort,
         }))}>
         <span className="switch-track"><span className="switch-knob" /></span>
         Include getting to the airport
       </button>
+      <GroundInfo store={store} />
 
       {s.includeGround && <HomePicker store={store} />}
     </div>
@@ -129,5 +133,70 @@ function HomePicker({ store }: { store: Store }) {
         </div>
       </div>
     </Dropdown>
+  );
+}
+
+/**
+ * The ⓘ next to the toggle. A mouse hover previews the explanation; a click, tap or
+ * Enter pins it open through the shared popover state, so Escape and the scrim close it.
+ */
+function GroundInfo({ store }: { store: Store }) {
+  const { state: s, togglePopover } = store;
+  const [hovered, setHovered] = useState(false);
+  const closeTimer = useRef<number>(undefined);
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  const pinned = s.popover === 'groundInfo';
+  const open = pinned || hovered;
+  // Touch taps also fire pointerenter but never pointerleave, so only a mouse may hover-open.
+  // Closing waits a moment so the mouse can cross the gap between the button and the panel.
+  const onHover = (value: boolean) => (e: PointerEvent) => {
+    if (e.pointerType !== 'mouse') return;
+    window.clearTimeout(closeTimer.current);
+    if (value) setHovered(true);
+    else closeTimer.current = window.setTimeout(() => setHovered(false), 150);
+  };
+  return (
+    <div className="dropdown info-tip" onPointerEnter={onHover(true)} onPointerLeave={onHover(false)}>
+      <button type="button" className="round-icon-button info-button" aria-label="How getting to the airport is estimated"
+        aria-expanded={open} aria-controls="ground-info" onClick={() => { window.clearTimeout(closeTimer.current); setHovered(false); togglePopover('groundInfo'); }}>
+        <Icon name="info" size={20} />
+      </button>
+      {open && (
+        <div id="ground-info" className="popover popover-left info-popover" role="region"
+          aria-label="How getting to the airport is estimated">
+          <GroundExplanation />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroundExplanation() {
+  return (
+    <div className="popover-body info-body">
+      <p><strong>What it does.</strong> Each departure airport gets an estimate of what it costs to get there
+        from your home city, and back again on a round trip. That is added to the flight price, the list is
+        sorted by <strong>total cost</strong>, and the map colours follow the total, so a cheap flight from
+        a far-away airport no longer looks cheaper than it is.</p>
+      <p><strong>How it’s estimated.</strong> The distance is the straight line from your home city to the
+        airport, plus 20% for roads and rails. Then the cheapest usual way is picked:</p>
+      <table className="info-table">
+        <tbody>
+          <tr><th>Under 45 km</th><td>Airport transfer, about €9 and 50 min</td></tr>
+          <tr><th>Under 220 km</th><td>Bus, €6 + €0.07/km, at about 65 km/h</td></tr>
+          <tr><th>Under 1,150 km</th><td>Train, €14 + €0.105/km, at about 115 km/h. Britain to the
+            mainland goes by Channel Tunnel up to 800 km, with €30 added.</td></tr>
+          <tr><th>Farther, or over sea</th><td>A short flight, €48 + €0.045/km, plus about 2½ h
+            of airport time. Across the Atlantic it starts at €290.</td></tr>
+        </tbody>
+      </table>
+      <p><strong>Who pays.</strong> Prices are per adult and one way. Round trips count twice, children
+        count at 60% and infants travel free. Cabin class does not change the ground cost.</p>
+      <p><strong>What it leaves out.</strong> These are rules of thumb, not timetables or real fares. They
+        don’t know about driving, parking, rail passes, night travel or a missing direct route. Islands
+        such as Mallorca, the Canaries or Iceland always count as a flight. While this is on, the price
+        filter caps the total trip cost. Travel time is shown on each row but is not added to the flight
+        duration, so the duration filter and sort look at the flight alone. Home cities come from a fixed list, so pick the closest one.</p>
+    </div>
   );
 }

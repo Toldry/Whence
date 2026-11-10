@@ -142,7 +142,7 @@ function RouteCard({ row, focus, pinned, destination, home, money, round, captio
         <div className="card-total">
           <div className="card-line"><span><Icon name="flight" size={15} className="muted" />Flight {row.airport.iata} → {destination.iata}</span><strong>{money(row.flight)}</strong></div>
           <div className="card-line"><span><Icon name={mode.icon} size={15} className="muted" />
-            <span>{row.ground.mode === 'transfer' ? `${home.name} to the airport` : `${home.name} → ${row.airport.city} by ${mode.verb}`} · {formatDuration(row.ground.minutes)}{round ? ', both ways' : ''}</span></span>
+            <span>{row.ground.mode === 'transfer' ? `${home.name} to the airport` : `${home.name} → ${row.airport.city} by ${mode.verb}`} · {formatDuration(row.ground.minutes)}{round ? ' each way, priced both ways' : ''}</span></span>
             <strong>{money(row.groundCost)}</strong></div>
           <div className="card-sep" />
           <div className="card-line card-sum"><span>Total trip</span><span>{money(row.total)}</span></div>

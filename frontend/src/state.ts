@@ -6,7 +6,7 @@ import type { FitRequest, FocusPoint } from './components/InboundMap';
 
 export type PopoverKey =
   | 'currency' | 'trip' | 'pax' | 'cabin' | 'from' | 'to' | 'dates'
-  | 'stops' | 'price' | 'airlines' | 'duration' | 'home' | 'sort';
+  | 'stops' | 'price' | 'airlines' | 'duration' | 'home' | 'sort' | 'groundInfo';
 
 export interface FromState {
   type: OriginScope['type'];

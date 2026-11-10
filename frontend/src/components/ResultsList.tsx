@@ -142,7 +142,7 @@ export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBa
                       <span className="breakdown-part"><Icon name={mode.icon} size={15} className="muted" /><strong>{money(row.groundCost)}</strong> {mode.label}</span>
                       <span className="faint">=</span>
                       <strong>{money(row.total)}</strong>
-                      <span className="breakdown-time">{formatDuration(row.ground.minutes)} each way</span>
+                      <span className="breakdown-time">{formatDuration(row.ground.minutes)}{s.trip === 'round' ? ' each way' : ''}</span>
                     </div>
                   )}
                 </div>

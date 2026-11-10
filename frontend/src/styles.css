@@ -214,6 +214,19 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
 }
 .switch-chip.is-active .switch-track { background: var(--accent); }
 .switch-chip.is-active .switch-knob { left: 16px; }
+.info-tip { display: flex; margin-left: -4px; }
+.info-button { color: var(--ink-3); }
+.info-button[aria-expanded="true"] { color: var(--accent); background: var(--accent-faint); }
+.info-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.info-popover { width: 380px; max-height: min(560px, calc(100vh - 140px)); overflow-y: auto; }
+.info-body { gap: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.info-body p { margin: 0; text-wrap: pretty; }
+.info-body strong { color: var(--ink); font-weight: 600; }
+.info-table { border-collapse: collapse; }
+.info-table th { text-align: left; vertical-align: top; white-space: nowrap; padding: 4px 10px 4px 0;
+  font-weight: 600; color: var(--ink-2); }
+.info-table td { padding: 4px 0; }
+.info-table tr + tr > * { border-top: 1px solid var(--line); }
 
 /* Search card */
 .search-area { flex: none; padding: 14px 24px 0; }
@@ -386,6 +399,7 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
   .field { height: 52px; }
   .filters { padding: 10px 16px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .filters .popover { position: fixed; top: auto; left: 16px; right: 16px; bottom: 16px; width: auto !important; }
+  .filters .info-popover { max-height: 70vh; }
   .popover-right .popover, .field-wrap .popover { max-width: calc(100vw - 32px); }
   .field-dates .popover { width: auto !important; left: 0; right: 0; }
   .field-from .popover { width: auto !important; left: 0; right: 0; }
