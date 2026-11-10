@@ -9,7 +9,7 @@
  */
 import type { AppState } from '../state';
 import { upcomingMonths } from '../state';
-import { DESTINATION_BY_IATA, HOME_BY_NAME, REGIONS, type Destination } from '../data/places';
+import { DESTINATION_BY_IATA, HOME_BY_NAME, REGIONS, type Destination, type HomeCity } from '../data/places';
 import { CURRENCY_RATES } from './format';
 import { SORTERS } from './results';
 
@@ -39,13 +39,13 @@ const ALLOWED: Partial<Record<string, (value: string) => boolean>> = {
   stops: v => v === 'any' || v === '0' || v === '1',
   sort: v => v in SORTERS,
   currency: v => v in CURRENCY_RATES,
-  home: v => v in HOME_BY_NAME,
   mobileView: v => v === 'list' || v === 'map',
   'from.type': v => ['anywhere', 'region', 'country', 'near'].includes(v),
   'from.region': v => v in REGIONS,
 };
 
 const DESTINATION_EXTRA = ['city', 'country', 'airport', 'lat', 'lon'] as const;
+const HOME_EXTRA = ['country', 'lat', 'lon', 'iata'] as const;
 
 function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
@@ -120,6 +120,15 @@ export function stateToParams(state: AppState, defaults: AppState): URLSearchPar
       if (destination && !sameValue(DESTINATION_BY_IATA[destination.iata], destination)) {
         for (const field of DESTINATION_EXTRA) params.set(nestedName(name, field), String(destination[field]));
       }
+    } else if (key === 'home') {
+      const home = value as HomeCity;
+      params.set(name, home.name);
+      // A home picked from search isn't a preset, so carry where it is.
+      if (!sameValue(HOME_BY_NAME[home.name], home)) {
+        for (const field of HOME_EXTRA) {
+        if (home[field] !== undefined) params.set(nestedName(name, field), String(home[field]));
+      }
+      }
     } else if (Array.isArray(value)) {
       for (const item of value) params.append(name, String(item));
       if (!value.length) params.set(name, '');
@@ -154,6 +163,22 @@ function destinationFromParams(params: URLSearchParams, name: string): Destinati
   return DESTINATION_BY_IATA[iata];
 }
 
+function homeFromParams(params: URLSearchParams, name: string): HomeCity | undefined {
+  const homeName = params.get(name)?.trim();
+  if (!homeName) return undefined;
+  const lat = Number(params.get(nestedName(name, 'lat')));
+  const lon = Number(params.get(nestedName(name, 'lon')));
+  if (params.has(nestedName(name, 'lat')) && Number.isFinite(lat) && Number.isFinite(lon)
+    && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+    const iata = params.get(nestedName(name, 'iata'))?.toUpperCase();
+    return {
+      name: homeName, country: params.get(nestedName(name, 'country')) ?? '', lat, lon,
+      ...(iata && /^[A-Z0-9]{3}$/.test(iata) ? { iata } : {}),
+    };
+  }
+  return HOME_BY_NAME[homeName];
+}
+
 /** Returns the defaults with every valid param from the URL applied. Bad params are skipped. */
 export function stateFromParams(params: URLSearchParams, defaults: AppState): AppState {
   const next: Record<string, unknown> = { ...defaults };
@@ -165,6 +190,9 @@ export function stateFromParams(params: URLSearchParams, defaults: AppState): Ap
     if (key === 'destination') {
       const destination = destinationFromParams(params, name);
       if (destination !== undefined) next[key] = destination;
+    } else if (key === 'home') {
+      const home = homeFromParams(params, name);
+      if (home) next[key] = home;
     } else if (Array.isArray(fallback)) {
       if (params.has(name)) next[key] = params.getAll(name).filter(v => v !== '');
     } else if (isPlainObject(fallback)) {

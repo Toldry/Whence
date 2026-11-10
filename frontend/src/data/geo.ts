@@ -38,11 +38,13 @@ export function estimateFlightMinutes(km: number, transfers: number): number {
 }
 
 type Landmass = 'gb' | 'ie' | 'na' | 'eu' | 'island';
-const ISLAND_AIRPORTS = new Set(['FNC', 'PDL', 'PMI', 'IBZ', 'TFS', 'LPA', 'ACE', 'FUE', 'KEF']);
+/** Airport and city codes (TCI is Tenerife, REK Reykjavík) on islands with no road to the mainland. */
+const ISLAND_AIRPORTS = new Set(['FNC', 'PDL', 'PMI', 'IBZ', 'TFS', 'TCI', 'LPA', 'ACE', 'FUE', 'KEF', 'REK']);
+const ISLAND_COUNTRIES = new Set(['Iceland', 'Malta', 'Cyprus']);
 const NORTH_AMERICA = new Set(['United States', 'Canada', 'Mexico']);
 
 function landmassOf(place: Place): Landmass {
-  if (place.iata && ISLAND_AIRPORTS.has(place.iata)) return 'island';
+  if ((place.iata && ISLAND_AIRPORTS.has(place.iata)) || ISLAND_COUNTRIES.has(place.country)) return 'island';
   if (place.country === 'United Kingdom') return 'gb';
   if (place.country === 'Ireland') return 'ie';
   if (NORTH_AMERICA.has(place.country)) return 'na';

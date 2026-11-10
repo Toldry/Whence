@@ -1,6 +1,6 @@
 import type { DateMode, FlexKind, TripType } from './api/types';
-import type { Destination } from './data/places';
-import { DESTINATION_BY_IATA } from './data/places';
+import type { Destination, HomeCity } from './data/places';
+import { DESTINATION_BY_IATA, HOME_BY_NAME } from './data/places';
 import type { OriginScope, SortKey, StopsFilter } from './lib/results';
 import type { FitRequest, FocusPoint } from './components/InboundMap';
 
@@ -35,7 +35,8 @@ export interface AppState {
   airlines: string[];
   maxDurationHours: number | null;
   includeGround: boolean;
-  home: string;
+  /** Where the "getting to the airport" estimate starts: a preset or any searched-for city. */
+  home: HomeCity;
   sort: SortKey;
   currency: string;
   hoverId: string | null;
@@ -82,7 +83,7 @@ export function initialState(): AppState {
     depart: `${month}-12`, returnDate: `${month}-15`,
     adults: 1, children: 0, infants: 0, cabin: 'Economy',
     stops: 'any', maxPrice: null, airlines: [], maxDurationHours: null,
-    includeGround: true, home: 'Lyon', sort: 'total', currency: 'EUR',
+    includeGround: true, home: HOME_BY_NAME.Lyon, sort: 'total', currency: 'EUR',
     hoverId: null, selectedId: null, focusPoint: null, fitRequest: null, popover: null,
     mobileView: 'list',
   };

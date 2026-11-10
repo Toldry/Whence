@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { HOME_BY_NAME, MOCK_AIRPORTS } from '../data/places';
+import { MOCK_AIRPORTS } from '../data/places';
 import { formatAge, formatDuration, formatMoney, km } from '../lib/format';
 import { STALE_ROW_HOURS, type OriginRow } from '../lib/results';
 import type { Store } from '../state';
@@ -22,7 +22,7 @@ export function MapPanel({ store, rows, status, legend, priceCaption }: {
   const apiRef = useRef<MapApi | null>(null);
   const money = (v: number) => formatMoney(v, s.currency);
   const destination = s.destination;
-  const home = s.includeGround ? HOME_BY_NAME[s.home] ?? null : null;
+  const home = s.includeGround ? s.home : null;
   const showing = status.kind === 'rows';
 
   const notice = status.kind === 'loading' ? { icon: 'history', text: 'Loading cached prices…' }

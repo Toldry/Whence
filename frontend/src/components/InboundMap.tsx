@@ -319,7 +319,7 @@ class MapController {
 
   private syncHome() {
     const h = this.props.current.home;
-    const key = h ? h.name : '';
+    const key = h ? `${h.name}|${h.lat}|${h.lon}` : '';
     if (key === this.keys.home) return;
     this.keys.home = key;
     if (this.homeMarker) { this.map.removeLayer(this.homeMarker); this.homeMarker = null; }
@@ -362,7 +362,7 @@ class MapController {
       }
     }
     const groundId = p.home && (hoverId || selectedId);
-    const groundKey = groundId ? groundId + p.home!.name : '';
+    const groundKey = groundId ? `${groundId}|${p.home!.lat}|${p.home!.lon}` : '';
     if (groundKey !== this.keys.gnd) {
       this.keys.gnd = groundKey;
       if (this.groundLine) { this.map.removeLayer(this.groundLine); this.groundLine = null; }

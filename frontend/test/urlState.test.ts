@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, type AppState } from '../src/state';
 import { stateFromParams, stateToParams } from '../src/lib/urlState';
+import { HOME_BY_NAME } from '../src/data/places';
 
 const defaults = initialState();
 const roundTrip = (state: AppState) => stateFromParams(new URLSearchParams(stateToParams(state, defaults).toString()), defaults);
@@ -28,6 +29,18 @@ describe('url state', () => {
     expect(roundTrip({ ...defaults, destination: null }).destination).toBeNull();
     const destination = { iata: 'GDL', city: 'Guadalajara', country: 'Mexico', airport: 'Miguel Hidalgo', lat: 20.52, lon: -103.31 };
     expect(roundTrip({ ...defaults, destination }).destination).toEqual(destination);
+  });
+
+  it('keeps a preset home by name and a searched-for one with its position', () => {
+    const preset = stateToParams({ ...defaults, home: HOME_BY_NAME.Paris }, defaults);
+    expect(preset.get('home')).toBe('Paris');
+    expect(preset.has('homeLat')).toBe(false);
+    expect(roundTrip({ ...defaults, home: HOME_BY_NAME.Paris }).home).toEqual(HOME_BY_NAME.Paris);
+    const home = { name: 'Grenoble', country: 'France', lat: 45.19, lon: 5.72 };
+    expect(roundTrip({ ...defaults, home }).home).toEqual(home);
+    const palma = { name: 'Palma', iata: 'PMI', country: 'Spain', lat: 39.57, lon: 2.65 };
+    expect(roundTrip({ ...defaults, home: palma }).home).toEqual(palma);
+    expect(stateFromParams(new URLSearchParams('home=Nowhere'), defaults).home).toEqual(defaults.home);
   });
 
   it('ignores invalid values and leaves transient UI state alone', () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usingMockData, type InboundQuery } from './api';
-import { DESTINATION_BY_IATA, HOME_BY_NAME } from './data/places';
+import { DESTINATION_BY_IATA } from './data/places';
 import { CURRENCY_NAMES, CURRENCY_RATES, currencySymbol, formatAge, formatMoney, formatMonth } from './lib/format';
 import {
   assignTiers, computeRows, fareOptions, SORTERS, tierForBin,
@@ -78,7 +78,7 @@ export function App() {
     trip: s.trip,
     cabin: s.cabin,
     travellers: { adults: s.adults, children: s.children, infants: s.infants },
-    home: s.includeGround ? HOME_BY_NAME[s.home] ?? null : null,
+    home: s.includeGround ? s.home : null,
     now,
   }), [search.loading, search.response, s.destination, s.trip, s.cabin, s.adults, s.children, s.infants, s.includeGround, s.home, now]);
 

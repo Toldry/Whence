@@ -17,6 +17,8 @@ export interface Destination {
 
 export interface HomeCity {
   name: string;
+  /** City code when picked from search; lets the ground estimate spot island homes. */
+  iata?: string;
   country: string;
   lat: number;
   lon: number;

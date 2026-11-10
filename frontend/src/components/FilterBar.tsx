@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { HOMES } from '../data/places';
+import { fareSource } from '../api';
+import { HOMES, type HomeCity } from '../data/places';
 import { formatMoney } from '../lib/format';
 import type { Store } from '../state';
 import { Dropdown, Icon, OptionList } from './ui';
@@ -105,31 +106,65 @@ export function FilterBar({ store, ranges }: { store: Store; ranges: FilterRange
   );
 }
 
+/** Same city twice (a preset and a search hit, or a city and its airport) shows once. */
+const homeKey = (h: HomeCity) => `${h.name}|${h.country}`.toLowerCase();
+
 function HomePicker({ store }: { store: Store }) {
   const { state: s, set, togglePopover } = store;
+  const open = s.popover === 'home';
   const [query, setQuery] = useState('');
-  const homes = HOMES.filter(h => !query || h.name.toLowerCase().includes(query.toLowerCase()));
+  const [found, setFound] = useState<HomeCity[]>([]);
+  const [searching, setSearching] = useState(false);
+  const needle = query.trim().toLowerCase();
+
+  // Any city the back end knows (every city with an airport), looked up as you type.
+  useEffect(() => {
+    if (!open || needle.length < 2) { setFound([]); setSearching(false); return; }
+    const controller = new AbortController();
+    setSearching(true);
+    const timer = setTimeout(() => {
+      fareSource.searchPlaces(needle, controller.signal)
+        .then(list => setFound(list.map(p => ({ name: p.city, iata: p.iata, country: p.country, lat: p.lat, lon: p.lon }))))
+        .catch(() => { if (!controller.signal.aborted) setFound([]); })
+        .finally(() => { if (!controller.signal.aborted) setSearching(false); });
+    }, 150);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [needle, open]);
+
+  const presets = HOMES.filter(h => !needle || h.name.toLowerCase().includes(needle));
+  const seen = new Set<string>();
+  const homes = [...(needle ? [] : [s.home]), ...presets, ...found]
+    .filter(h => !seen.has(homeKey(h)) && seen.add(homeKey(h)))
+    .slice(0, 40);
+  const pick = (home: HomeCity) => { set({ home, popover: null }); setQuery(''); };
+  const isCurrent = (h: HomeCity) => homeKey(h) === homeKey(s.home);
+
   return (
-    <Dropdown open={s.popover === 'home'} onToggle={() => togglePopover('home')} width={320}
+    <Dropdown open={open} onToggle={() => togglePopover('home')} width={320}
       triggerClassName="chip chip-drop"
-      trigger={<><Icon name="home" className="muted" />from <strong>{s.home}</strong><Icon name="expand_more" className="muted" /></>}>
+      trigger={<><Icon name="home" className="muted" />from <strong>{s.home.name}</strong><Icon name="expand_more" className="muted" /></>}>
       <div className="popover-body">
         <p className="popover-explainer">
           Each airport gets an estimate for train, bus or a short flight from your home city, there and back.
-          Sort by total to find the real cheapest start.
+          Search any city with an airport; from a smaller town, pick the nearest one.
         </p>
         <label className="search-input">
           <Icon name="search" className="faint" />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Your home city" aria-label="Your home city" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search for your home city"
+            aria-label="Your home city" autoFocus
+            onKeyDown={e => { if (e.key === 'Enter' && needle && homes[0]) { e.preventDefault(); pick(homes[0]); } }} />
         </label>
         <div className="scroll column" style={{ maxHeight: 240 }}>
           {homes.map(h => (
-            <button type="button" key={h.name} className={`option ${s.home === h.name ? 'is-selected' : ''}`}
-              onClick={() => { set({ home: h.name, popover: null }); setQuery(''); }}>
-              <span className="grow"><span className="strong">{h.name}</span><span className="subtle">, {h.country}</span></span>
-              {s.home === h.name && <Icon name="check" className="accent" />}
+            <button type="button" key={homeKey(h)} className={`option ${isCurrent(h) ? 'is-selected' : ''}`}
+              onClick={() => pick(h)}>
+              <span className="grow"><span className="strong">{h.name}</span>{h.country && <span className="subtle">, {h.country}</span>}</span>
+              {isCurrent(h) && <Icon name="check" className="accent" />}
             </button>
           ))}
+          {needle && !homes.length && (
+            <div className="popover-note">{searching ? 'Searching…' : `No cities match “${query.trim()}”.`}</div>
+          )}
         </div>
       </div>
     </Dropdown>
@@ -196,7 +231,7 @@ function GroundExplanation() {
         don’t know about driving, parking, rail passes, night travel or a missing direct route. Islands
         such as Mallorca, the Canaries or Iceland always count as a flight. While this is on, the price
         filter caps the total trip cost. Travel time is shown on each row but is not added to the flight
-        duration, so the duration filter and sort look at the flight alone. Home cities come from a fixed list, so pick the closest one.</p>
+        duration, so the duration filter and sort look at the flight alone. Home is a city centre, so from a smaller town pick the nearest city.</p>
     </div>
   );
 }

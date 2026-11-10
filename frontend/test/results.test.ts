@@ -5,6 +5,7 @@ import {
   type OriginRow, type ResultContext, type ResultFilters,
 } from '../src/lib/results';
 import { HOME_BY_NAME, MOCK_AIRPORTS } from '../src/data/places';
+import { estimateGround } from '../src/data/geo';
 
 const airport = (iata: string) => MOCK_AIRPORTS.find(a => a.iata === iata)!;
 const now = Date.parse('2026-11-10T00:00:00Z');
@@ -51,6 +52,13 @@ describe('computeRows', () => {
     // Without a home city the same cap only looks at the flight, so Lyon stays.
     const flightOnly = computeRows(ctx(), { ...noFilters, maxPrice: lyon.total - 1 });
     expect(flightOnly.find(r => r.airport.iata === 'LYS')).toBeDefined();
+  });
+
+  it('sends an island home to the mainland by flight', () => {
+    const palma = { name: 'Palma', iata: 'PMI', country: 'Spain', lat: 39.57, lon: 2.65 };
+    const barcelona = { iata: 'BCN', country: 'Spain', lat: 41.297, lon: 2.078 };
+    expect(estimateGround(palma, barcelona).mode).toBe('flight');
+    expect(estimateGround({ ...palma, iata: undefined, lat: 41.65, lon: 2.0 }, barcelona).mode).not.toBe('flight');
   });
 
   it('filters by region and tolerates an unknown price age', () => {
