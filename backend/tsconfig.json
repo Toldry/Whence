@@ -9,7 +9,8 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "scripts"]
 }

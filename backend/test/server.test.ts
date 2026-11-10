@@ -7,13 +7,13 @@ import type { FareProvider } from '../src/types.ts';
 import { UpstreamError } from '../src/types.ts';
 
 let baseUrl = '';
-const server = createApp(createService(loadConfig({})), { corsOrigin: '*' });
+const server = createApp(createService(loadConfig({})), { corsOrigins: ['*'] });
 const failingProvider: FareProvider = {
   name: 'failing',
   searchInbound: async () => { throw new UpstreamError('down'); },
   searchPlaces: async () => [],
 };
-const failingServer = createApp(createService(loadConfig({}), failingProvider), { corsOrigin: '*' });
+const failingServer = createApp(createService(loadConfig({}), failingProvider), { corsOrigins: ['*'] });
 let failingUrl = '';
 
 before(async () => {

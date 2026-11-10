@@ -7,19 +7,22 @@ It serves the contract in [`docs/inbound-api.md`](../docs/inbound-api.md).
   No runtime dependencies, no build step. `typescript` is a dev dependency for type checks only.
 - **Data source:** Travelpayouts / Aviasales Data API, behind a swappable `FareProvider`
   interface. A mock provider (same fares as the design prototype) runs with no token.
-- **Sized for personal use:** one process, in-memory cache, no database.
+- **Sized for personal use:** runs as one Node process (in-memory cache) or as a free
+  Cloudflare Worker (KV cache). Both share the web-standard handler in `src/routes.ts`.
 
 ```mermaid
 flowchart LR
-  client[Whence front end] -->|GET /api/inbound| server[server.ts]
-  server --> service[InboundService<br/>cache + trip-shape filter + trim]
-  service --> cache[(TtlCache<br/>30 min fresh, 24 h stale-on-error)]
+  client[Whence front end] -->|GET /api/inbound| routes[routes.ts]
+  node[server.ts<br/>Node adapter] --> routes
+  worker[worker.ts<br/>Cloudflare Worker] --> routes
+  routes --> service[InboundService<br/>cache + trip-shape filter + trim]
+  service --> cache[(TtlCache in Node, KvCache in the Worker<br/>30 min fresh, 24 h stale-on-error)]
   service --> provider{FareProvider}
   provider --> mock[MockProvider]
   provider --> tp[TravelpayoutsProvider]
   tp -->|v3/prices_for_dates| api[(api.travelpayouts.com)]
   tp -->|v3/get_latest_prices| api
-  tp --> ref[ReferenceData<br/>airports, cities, countries, airlines]
+  tp --> ref[ReferenceData<br/>bundled src/data/reference.json]
 ```
 
 ## Run it
@@ -45,6 +48,35 @@ npm test
 ```sh
 npm run typecheck
 ```
+
+## Deploy to Cloudflare Workers (free plan)
+
+The Worker is configured in `wrangler.jsonc` (name `whence-api`, KV namespace `FARE_CACHE`,
+CORS for `https://toldry.github.io` and `http://localhost:5173`). With `CLOUDFLARE_API_TOKEN`
+and `CLOUDFLARE_ACCOUNT_ID` set:
+
+```sh
+npx wrangler secret put TRAVELPAYOUTS_API_TOKEN
+```
+
+```sh
+npx wrangler secret put TRAVELPAYOUTS_MARKER
+```
+
+```sh
+npm run deploy
+```
+
+It is live at https://whence-api.dash-cloudflare-com-endowment533.workers.dev. Until the token
+secret is set, every route answers 503 `misconfigured`. `npm run dev:worker` runs it locally on
+port 8787.
+
+## Reference data
+
+Airport, city, country and airline names come from Travelpayouts' free reference files (about
+10 MB). `npm run build:reference` downloads them and writes a slim copy (about 1 MB, 440 KB
+gzipped) to `src/data/reference.json`, which is committed and bundled, so neither runtime downloads
+anything at startup. Re-run it now and then to pick up new airports.
 
 ## Endpoints
 
@@ -98,7 +130,7 @@ See `.env.example`. The main knobs:
 | `TRAVELPAYOUTS_MARKETS` | `auto` | `auto` = destination's country (LIS → `pt`); or a list like `pt,gb,de`. Measured live, the market made no difference (see below), so keep one |
 | `TRAVELPAYOUTS_MAX_PAGES` | `2` | Pages of 1000 rows per endpoint per market |
 | `CACHE_TTL_MINUTES` | `30` | |
-| `CORS_ORIGIN` | `*` | Set to the front end's origin when deployed |
+| `CORS_ORIGINS` | `*` | Comma-separated browser origins allowed by CORS (`CORS_ORIGIN` also works) |
 
 Each uncached search costs `4 × markets × pages` upstream calls at most. In practice it is 4: no
 response came near 1000 rows (London round trips for a month: 876), so the second page is never read.
@@ -142,4 +174,6 @@ May 2027, one-way and round trip, markets `pt`/`is`, `gb`, `de`, `us`:
   trip of the month, which is often not a weekend. Asking per departure day (about 13 extra calls
   for a weekend month) would find more.
 - Small airports have little cached data (INV: 0 to 5 origins a month); nothing on our side fixes that.
-- Reference data (about 10 MB) is cached to `.cache/reference/` for 7 days.
+- Reference data is a snapshot; new airports appear only after `npm run build:reference`.
+- KV is eventually consistent (about 60 s between locations), so two people searching the same
+  thing at once in different regions may both hit the upstream.

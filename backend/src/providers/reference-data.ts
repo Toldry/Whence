@@ -1,71 +1,102 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import type { AirportInfo, Place } from '../types.ts';
 
-// Travelpayouts' free, token-less reference files (English names).
+// Airport, city, country and airline lookups. The data comes from Travelpayouts'
+// free reference files, slimmed by scripts/build-reference.ts into
+// src/data/reference.json and bundled, so no file system or download is needed
+// at runtime (the Worker has neither a disk nor time to fetch 10 MB).
 // https://support.travelpayouts.com/hc/en-us/articles/360018907280-Data-in-json-format
-const DATA_FILES = ['airports', 'cities', 'countries', 'airlines'] as const;
-type DataFile = (typeof DATA_FILES)[number];
+
+/** [code, name, city_code, country_code, lat, lon, searchable (0 or 1)] */
+export type SlimAirport = [string, string, string, string, number, number, 0 | 1];
+/** [code, name, country_code, lat, lon, searchable (0 or 1)] */
+export type SlimCity = [string, string, string, number, number, 0 | 1];
+
+export interface SlimReference {
+  airports: SlimAirport[];
+  cities: SlimCity[];
+  /** Country code to English name. */
+  countries: Record<string, string>;
+  /** Airline IATA code to name. */
+  airlines: Record<string, string>;
+}
 
 interface Coordinates { lat: number; lon: number }
-interface RawAirport {
+export interface RawAirport {
   code: string; name: string | null; city_code: string; country_code: string;
   coordinates: Coordinates | null; flightable?: boolean; iata_type?: string;
 }
-interface RawCity {
+export interface RawCity {
   code: string; name: string | null; country_code: string;
   coordinates: Coordinates | null; has_flightable_airport?: boolean;
 }
-interface RawNamed { code: string; name: string | null }
-
-export interface ReferenceDataOptions {
-  baseUrl?: string;
-  /** Directory for an on-disk copy, so restarts don't refetch about 10 MB. */
-  cacheDir?: string;
-  maxAgeMs?: number;
-  fetchImpl?: typeof fetch;
+export interface RawNamed { code: string; name: string | null }
+export interface RawReference {
+  airports: RawAirport[]; cities: RawCity[]; countries: RawNamed[]; airlines: RawNamed[];
 }
 
-/** Airport, city, country and airline lookups, loaded once and kept in memory. */
+// About 10 m of precision is plenty for a map pin and keeps the file small.
+const roundCoordinate = (value: number) => Math.round(value * 1e4) / 1e4;
+const IATA_CODE = /^[A-Z]{3}$/;
+
+/** Turns Travelpayouts' raw files into the slim bundled shape. */
+export function slimReference(raw: RawReference): SlimReference {
+  return {
+    airports: raw.airports
+      .filter((airport) => airport.coordinates && IATA_CODE.test(airport.code))
+      .map((airport) => [
+        airport.code, airport.name ?? '', airport.city_code, airport.country_code,
+        roundCoordinate(airport.coordinates!.lat), roundCoordinate(airport.coordinates!.lon),
+        airport.flightable === false || (airport.iata_type && airport.iata_type !== 'airport') ? 0 : 1,
+      ]),
+    cities: raw.cities
+      .filter((city) => city.coordinates && IATA_CODE.test(city.code))
+      .map((city) => [
+        city.code, city.name ?? '', city.country_code,
+        roundCoordinate(city.coordinates!.lat), roundCoordinate(city.coordinates!.lon),
+        city.has_flightable_airport === false ? 0 : 1,
+      ]),
+    countries: Object.fromEntries(raw.countries.filter((c) => c.name).map((c) => [c.code, c.name!])),
+    airlines: Object.fromEntries(raw.airlines.filter((a) => a.name).map((a) => [a.code, a.name!])),
+  };
+}
+
+interface Airport {
+  code: string; name: string; cityCode: string; countryCode: string;
+  lat: number; lon: number; searchable: boolean;
+}
+interface City { code: string; name: string; countryCode: string; lat: number; lon: number; searchable: boolean }
+
 export class ReferenceData {
-  private airportsByCode = new Map<string, RawAirport>();
-  private citiesByCode = new Map<string, RawCity>();
-  private countryNames = new Map<string, string>();
-  private airlineNames = new Map<string, string>();
-  private loading: Promise<void> | null = null;
-  private loadedAt = 0;
-  private readonly options: Required<ReferenceDataOptions>;
+  private readonly airportsByCode = new Map<string, Airport>();
+  private readonly citiesByCode = new Map<string, City>();
+  private readonly countryNames: Record<string, string>;
+  private readonly airlineNames: Record<string, string>;
 
-  constructor(options: ReferenceDataOptions = {}) {
-    this.options = {
-      baseUrl: 'https://api.travelpayouts.com/data/en',
-      cacheDir: '.cache/reference',
-      maxAgeMs: 7 * 86_400_000,
-      fetchImpl: fetch,
-      ...options,
-    };
+  constructor(data: SlimReference) {
+    for (const [code, name, cityCode, countryCode, lat, lon, searchable] of data.airports) {
+      this.airportsByCode.set(code, { code, name, cityCode, countryCode, lat, lon, searchable: searchable === 1 });
+    }
+    for (const [code, name, countryCode, lat, lon, searchable] of data.cities) {
+      this.citiesByCode.set(code, { code, name, countryCode, lat, lon, searchable: searchable === 1 });
+    }
+    this.countryNames = data.countries;
+    this.airlineNames = data.airlines;
   }
 
-  /** Builds an instance from already-parsed files (used by tests). */
-  static fromRecords(records: Record<DataFile, unknown[]>): ReferenceData {
-    const data = new ReferenceData();
-    data.index(records);
-    data.loadedAt = Date.now();
-    return data;
+  /** Builds an instance from Travelpayouts' raw file shapes (used by tests). */
+  static fromRecords(raw: RawReference): ReferenceData {
+    return new ReferenceData(slimReference(raw));
   }
 
-  async ensureLoaded(): Promise<void> {
-    if (this.loadedAt && Date.now() - this.loadedAt < this.options.maxAgeMs) return;
-    this.loading ??= this.loadAll().finally(() => { this.loading = null; });
-    return this.loading;
-  }
+  /** Kept for the provider's call sites; bundled data is always loaded. */
+  async ensureLoaded(): Promise<void> {}
 
   airlineName(code: string): string {
-    return this.airlineNames.get(code) ?? code;
+    return this.airlineNames[code] ?? code;
   }
 
   cityCodeOf(code: string): string {
-    return this.airportsByCode.get(code)?.city_code ?? code;
+    return this.airportsByCode.get(code)?.cityCode ?? code;
   }
 
   /**
@@ -75,28 +106,28 @@ export class ReferenceData {
    */
   describe(code: string): AirportInfo | null {
     const airport = this.airportsByCode.get(code);
-    if (airport?.coordinates) {
-      const city = this.citiesByCode.get(airport.city_code);
+    if (airport) {
+      const city = this.citiesByCode.get(airport.cityCode);
       return {
         iata: code,
-        name: airport.name ?? code,
-        city: city?.name ?? airport.name ?? code,
-        country: this.countryNames.get(airport.country_code) ?? airport.country_code,
-        country_code: airport.country_code,
-        lat: airport.coordinates.lat,
-        lon: airport.coordinates.lon,
+        name: airport.name || code,
+        city: city?.name || airport.name || code,
+        country: this.countryNames[airport.countryCode] ?? airport.countryCode,
+        country_code: airport.countryCode,
+        lat: airport.lat,
+        lon: airport.lon,
       };
     }
     const city = this.citiesByCode.get(code);
-    if (city?.coordinates) {
+    if (city) {
       return {
         iata: code,
-        name: `${city.name ?? code} (all airports)`,
-        city: city.name ?? code,
-        country: this.countryNames.get(city.country_code) ?? city.country_code,
-        country_code: city.country_code,
-        lat: city.coordinates.lat,
-        lon: city.coordinates.lon,
+        name: `${city.name || code} (all airports)`,
+        city: city.name || code,
+        country: this.countryNames[city.countryCode] ?? city.countryCode,
+        country_code: city.countryCode,
+        lat: city.lat,
+        lon: city.lon,
       };
     }
     return null;
@@ -105,61 +136,27 @@ export class ReferenceData {
   /** Prefix search over codes, airport names and city names. */
   searchPlaces(term: string, limit: number): Place[] {
     const needle = term.toLowerCase();
-    const scored: { place: Place; score: number }[] = [];
-    const consider = (code: string, names: (string | null)[], type: Place['type']) => {
-      const info = this.describe(code);
-      if (!info) return;
+    const scored: { code: string; type: Place['type']; score: number }[] = [];
+    const consider = (code: string, names: string[], type: Place['type']) => {
       let score = -1;
       if (code.toLowerCase() === needle) score = 3;
-      else if (names.some((name) => name?.toLowerCase().startsWith(needle))) score = 2;
-      else if (names.some((name) => name?.toLowerCase().includes(' ' + needle))) score = 1;
-      if (score >= 0) scored.push({ place: { ...info, type }, score: score + (type === 'city' ? 0.5 : 0) });
+      else if (names.some((name) => name.toLowerCase().startsWith(needle))) score = 2;
+      else if (names.some((name) => name.toLowerCase().includes(' ' + needle))) score = 1;
+      if (score >= 0) scored.push({ code, type, score: score + (type === 'city' ? 0.5 : 0) });
     };
     for (const city of this.citiesByCode.values()) {
-      if (city.has_flightable_airport === false) continue;
-      consider(city.code, [city.name], 'city');
+      if (city.searchable) consider(city.code, [city.name], 'city');
     }
     for (const airport of this.airportsByCode.values()) {
-      if (airport.flightable === false || (airport.iata_type && airport.iata_type !== 'airport')) continue;
-      const cityName = this.citiesByCode.get(airport.city_code)?.name ?? null;
-      consider(airport.code, [airport.name, cityName], 'airport');
+      if (!airport.searchable) continue;
+      consider(airport.code, [airport.name, this.citiesByCode.get(airport.cityCode)?.name ?? ''], 'airport');
     }
-    scored.sort((a, b) => b.score - a.score || a.place.city.localeCompare(b.place.city));
+    const places = scored.map(({ code, type, score }) => ({ place: { ...this.describe(code)!, type }, score }));
+    places.sort((a, b) => b.score - a.score || a.place.city.localeCompare(b.place.city));
     // A city and its same-code airport (LIS) would show twice; keep the first.
     const seen = new Set<string>();
-    return scored.map((entry) => entry.place)
+    return places.map((entry) => entry.place)
       .filter((place) => !seen.has(place.iata) && seen.add(place.iata))
       .slice(0, limit);
-  }
-
-  private async loadAll(): Promise<void> {
-    const entries = await Promise.all(DATA_FILES.map(async (file) => [file, await this.loadFile(file)] as const));
-    this.index(Object.fromEntries(entries) as Record<DataFile, unknown[]>);
-    this.loadedAt = Date.now();
-  }
-
-  private async loadFile(file: DataFile): Promise<unknown[]> {
-    const cachePath = path.join(this.options.cacheDir, `${file}.json`);
-    try {
-      const info = await stat(cachePath);
-      if (Date.now() - info.mtimeMs < this.options.maxAgeMs) {
-        return JSON.parse(await readFile(cachePath, 'utf8')) as unknown[];
-      }
-    } catch { /* no usable disk copy */ }
-    const response = await this.options.fetchImpl(`${this.options.baseUrl}/${file}.json`);
-    if (!response.ok) throw new Error(`reference data ${file}: HTTP ${response.status}`);
-    const text = await response.text();
-    const parsed = JSON.parse(text) as unknown[];
-    await mkdir(this.options.cacheDir, { recursive: true }).catch(() => {});
-    await writeFile(cachePath, text).catch(() => {});
-    return parsed;
-  }
-
-  private index(records: Record<DataFile, unknown[]>): void {
-    this.airportsByCode = new Map((records.airports as RawAirport[]).map((a) => [a.code, a]));
-    this.citiesByCode = new Map((records.cities as RawCity[]).map((c) => [c.code, c]));
-    this.countryNames = new Map((records.countries as RawNamed[]).map((c) => [c.code, c.name ?? c.code]));
-    this.airlineNames = new Map((records.airlines as RawNamed[])
-      .filter((a) => a.name).map((a) => [a.code, a.name as string]));
   }
 }

@@ -1,10 +1,10 @@
-import { TtlCache } from './cache.ts';
+import type { FareCache } from './cache.ts';
 import { fitsTripShape, queryCacheKey } from './query.ts';
 import type { Fare, FareProvider, InboundQuery, InboundResponse, InboundResult, Place } from './types.ts';
 
 export interface InboundServiceOptions {
-  cache: TtlCache<InboundResult>;
-  placesCache?: TtlCache<Place[]>;
+  cache: FareCache<InboundResult>;
+  placesCache?: FareCache<Place[]>;
   now?: () => Date;
 }
 

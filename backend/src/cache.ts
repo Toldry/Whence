@@ -11,6 +11,11 @@ export interface CacheHit<V> {
   stale: boolean;
 }
 
+/** What the service needs from a cache: in memory (TtlCache) or Workers KV (KvCache). */
+export interface FareCache<V> {
+  getOrLoad(key: string, load: () => Promise<V>): Promise<CacheHit<V>>;
+}
+
 interface Entry<V> { value: V; storedAt: number }
 
 export interface TtlCacheOptions {
@@ -21,7 +26,7 @@ export interface TtlCacheOptions {
   now?: () => number;
 }
 
-export class TtlCache<V> {
+export class TtlCache<V> implements FareCache<V> {
   private readonly entries = new Map<string, Entry<V>>();
   private readonly inFlight = new Map<string, Promise<V>>();
   private readonly options: Required<TtlCacheOptions>;

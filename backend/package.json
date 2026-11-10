@@ -4,15 +4,21 @@
   "private": true,
   "description": "Back end for Whence: every origin with a cached fare to one destination.",
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "start": "node src/server.ts",
     "dev": "node --watch src/server.ts",
     "test": "node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:reference": "node scripts/build-reference.ts",
+    "dev:worker": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wrangler": "^4.159.0"
   }
 }

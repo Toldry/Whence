@@ -1,0 +1,22 @@
+// Cloudflare Worker for the Whence API. Deploy with: npm run deploy
+// Secrets (not in this file): TRAVELPAYOUTS_API_TOKEN, TRAVELPAYOUTS_MARKER
+//   npx wrangler secret put TRAVELPAYOUTS_API_TOKEN
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "whence-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "FARE_PROVIDER": "travelpayouts",
+    "CORS_ORIGINS": "https://toldry.github.io,http://localhost:5173",
+    "TRAVELPAYOUTS_MARKETS": "auto",
+    "TRAVELPAYOUTS_MAX_PAGES": "2",
+    "CACHE_TTL_MINUTES": "30",
+    "CACHE_STALE_HOURS": "24"
+  },
+  "kv_namespaces": [
+    { "binding": "FARE_CACHE", "id": "511688992590400ba5690d5191ea7f8a" }
+  ]
+}
