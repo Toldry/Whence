@@ -50,7 +50,16 @@ export interface TravelpayoutsOptions {
   /** Connection window at the hub for self-transfers, in minutes. */
   minConnectionMinutes?: number;
   maxConnectionMinutes?: number;
+  /**
+   * Time budget for one search, across both waves of calls. The fare calls get all of
+   * it; the self-transfer calls run only while at least MIN_SELF_TRANSFER_MS of it is
+   * left, and are cut off at the deadline (a hub cut off is skipped, like a failed one).
+   */
+  searchBudgetMs?: number;
 }
+
+/** Hub calls are not started with less time than this left in the search budget. */
+const MIN_SELF_TRANSFER_MS = 2_000;
 
 /** Hubs this close to the destination add little: few routes feed them. */
 const MIN_HUB_DISTANCE_KM = 300;
@@ -80,7 +89,8 @@ export class TravelpayoutsProvider implements FareProvider {
       baseUrl: 'https://api.travelpayouts.com', linkBaseUrl: 'https://www.aviasales.com',
       // Wrapped: Workers throw "Illegal invocation" when fetch is called as a method.
       fetchImpl: (input, init) => fetch(input, init),
-      selfTransferHubs: 10, minConnectionMinutes: 120, maxConnectionMinutes: 24 * 60, ...options,
+      selfTransferHubs: 10, minConnectionMinutes: 120, maxConnectionMinutes: 24 * 60,
+      searchBudgetMs: 20_000, ...options,
     };
   }
 
@@ -88,12 +98,16 @@ export class TravelpayoutsProvider implements FareProvider {
     const reference = this.options.referenceData;
     await reference.ensureLoaded();
     const markets = this.marketsFor(query.destination);
+    // Without a deadline, two slow waves of paged calls could keep the client waiting a minute.
+    const deadline = Date.now() + this.options.searchBudgetMs;
+    const budget = AbortSignal.timeout(this.options.searchBudgetMs);
+    const searchSignal = signal ? AbortSignal.any([signal, budget]) : budget;
 
     const calls = markets.flatMap((market) => [false, true].flatMap((perOrigin) => [
       ...[false, true].map((directOnly) =>
-        this.fetchPricesForDates(query, market, perOrigin, directOnly, signal)
+        this.fetchPricesForDates(query, market, perOrigin, directOnly, searchSignal)
           .then((rows) => ({ kind: 'dates' as const, rows }))),
-      this.fetchLatestPrices(query, market, perOrigin, signal).then((rows) => ({ kind: 'latest' as const, rows })),
+      this.fetchLatestPrices(query, market, perOrigin, searchSignal).then((rows) => ({ kind: 'latest' as const, rows })),
     ]));
     const settled = await Promise.allSettled(calls);
     const failures = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
@@ -111,8 +125,11 @@ export class TravelpayoutsProvider implements FareProvider {
       else latestRows.push(...result.value.rows);
     }
     const fares = this.mergeRows(query, datesRows, latestRows);
-    if (query.trip === 'oneway' && this.options.selfTransferHubs > 0) {
-      fares.push(...await this.selfTransferFares(query, markets[0]!, datesRows, fares, signal));
+    const timeLeft = deadline - Date.now();
+    if (query.trip === 'oneway' && this.options.selfTransferHubs > 0 && timeLeft >= MIN_SELF_TRANSFER_MS) {
+      fares.push(...await this.selfTransferFares(query, markets[0]!, datesRows, fares, searchSignal));
+    } else if (query.trip === 'oneway' && this.options.selfTransferHubs > 0) {
+      console.warn(`[travelpayouts] skipped self-transfers: ${Math.max(0, timeLeft)} ms of the search budget left`);
     }
 
     const airports: Record<string, AirportInfo> = {};
@@ -322,14 +339,22 @@ export class TravelpayoutsProvider implements FareProvider {
     for (let page = 1; page <= this.options.maxPages; page++) {
       const url = new URL(endpoint, this.options.baseUrl);
       for (const [key, value] of Object.entries({ ...params, page: String(page) })) url.searchParams.set(key, value);
-      const timeout = AbortSignal.timeout(this.options.timeoutMs);
-      const response = await this.options.fetchImpl(url, {
-        headers: { 'X-Access-Token': this.options.token, 'Accept-Encoding': 'gzip, deflate' },
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
-      if (!response.ok || !body || body.success === false) {
-        throw new Error(`${endpoint} HTTP ${response.status}${body?.error ? `: ${body.error}` : ''}`);
+      let body: ApiEnvelope<T> | null;
+      try {
+        const timeout = AbortSignal.timeout(this.options.timeoutMs);
+        const response = await this.options.fetchImpl(url, {
+          headers: { 'X-Access-Token': this.options.token, 'Accept-Encoding': 'gzip, deflate' },
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        });
+        body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+        if (!response.ok || !body || body.success === false) {
+          throw new Error(`${endpoint} HTTP ${response.status}${body?.error ? `: ${body.error}` : ''}`);
+        }
+      } catch (error) {
+        // A later page that fails or runs out of time still leaves the earlier pages' rows.
+        if (page === 1) throw error;
+        console.warn(`[travelpayouts] ${endpoint} page ${page} failed, keeping ${rows.length} rows:`, String(error));
+        break;
       }
       const data = body.data ?? [];
       rows.push(...data);

@@ -164,3 +164,55 @@ test('place search ranks code matches first and folds same-code city and airport
   assert.equal(places.filter((p) => p.iata === 'LIS').length, 1);
   assert.deepEqual(reference.searchPlaces('par', 10).map((p) => p.iata).sort(), ['CDG', 'ORY', 'PAR']);
 });
+
+test('self-transfer calls are cut off at the search budget instead of holding the search', async () => {
+  const gateways = ReferenceData.fromRecords({
+    airports: [
+      { code: 'GUA', name: 'La Aurora', city_code: 'GUA', country_code: 'GT', coordinates: { lat: 14.58, lon: -90.53 }, flightable: true, iata_type: 'airport' },
+      { code: 'MAD', name: 'Barajas', city_code: 'MAD', country_code: 'ES', coordinates: { lat: 40.47, lon: -3.56 }, flightable: true, iata_type: 'airport' },
+    ],
+    cities: [
+      { code: 'GUA', name: 'Guatemala City', country_code: 'GT', coordinates: { lat: 14.62, lon: -90.51 }, has_flightable_airport: true },
+      { code: 'MAD', name: 'Madrid', country_code: 'ES', coordinates: { lat: 40.42, lon: -3.7 }, has_flightable_airport: true },
+    ],
+    countries: [{ code: 'GT', name: 'Guatemala' }, { code: 'ES', name: 'Spain' }],
+    airlines: [],
+  });
+  const nonstop = {
+    success: true,
+    data: [{ origin: 'MAD', destination: 'GUA', origin_airport: 'MAD', price: 900, departure_at: '2026-12-03T12:00:00+01:00', transfers: 0 }],
+  };
+  const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    // The hub lookups (into MAD, or out of MAD) never answer until aborted.
+    if (url.searchParams.get('destination') === 'MAD' || url.searchParams.get('origin') === 'MAD') {
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      });
+    }
+    const body = url.pathname.endsWith('prices_for_dates') ? nonstop : { success: true, data: [] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  const provider = new TravelpayoutsProvider({
+    token: 't', referenceData: gateways, fetchImpl: impl, searchBudgetMs: 2_300,
+  });
+  // AbortSignal.timeout timers do not keep Node's event loop alive on their own.
+  const keepAlive = setInterval(() => {}, 1_000);
+  const started = Date.now();
+  const result = await provider.searchInbound(
+    { destination: 'GUA', trip: 'oneway', dateMode: 'flex', month: '2026-12', flexKind: 'week' })
+    .finally(() => clearInterval(keepAlive));
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 3_500, `took ${elapsed} ms`);
+  assert.deepEqual(result.fares.map((fare) => fare.origin), ['MAD']);
+});
+
+test('a later page that fails keeps the rows from earlier pages', async () => {
+  const full = { success: true, data: Array.from({ length: 2 }, () => pricesForDates.data[0]) };
+  const { impl } = fakeFetch((url) => (url.searchParams.get('page') === '1'
+    ? { status: 200, body: url.pathname.endsWith('prices_for_dates') ? full : { success: true, data: [] } }
+    : { status: 500, body: { success: false, error: 'boom' } }));
+  const provider = new TravelpayoutsProvider({ token: 't', referenceData: reference, fetchImpl: impl, pageSize: 2 });
+  const result = await provider.searchInbound(query);
+  assert.ok(result.fares.length > 0);
+});
