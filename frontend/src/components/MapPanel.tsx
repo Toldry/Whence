@@ -6,17 +6,20 @@ import type { Store } from '../state';
 import { ACCENT, TIERS } from '../theme';
 import { InboundMap, type MapApi } from './InboundMap';
 import { dateRange, GROUND_MODE, SELF_TRANSFER_WARNING, stopsLabel, type ListStatus } from './ResultsList';
+import type { SearchProgress } from '../lib/useInboundSearch';
+import { SearchProgressPill } from './SearchProgress';
 import { Icon } from './ui';
 
 const CARD_WIDTH = 300;
 const HALF_CARD = CARD_WIDTH / 2 + 12;
 
-export function MapPanel({ store, rows, status, legend, priceCaption }: {
+export function MapPanel({ store, rows, status, legend, priceCaption, progress }: {
   store: Store;
   rows: OriginRow[];
   status: ListStatus;
   legend: { color: string; label: string }[];
   priceCaption: string;
+  progress: SearchProgress | null;
 }) {
   const { state: s, set } = store;
   const apiRef = useRef<MapApi | null>(null);
@@ -70,7 +73,8 @@ export function MapPanel({ store, rows, status, legend, priceCaption }: {
         </button>
       </div>
 
-      {notice && <div className="map-notice"><Icon name={notice.icon} className="muted" />{notice.text}</div>}
+      {status.kind === 'loading' && progress ? <SearchProgressPill progress={progress} />
+        : notice && <div className="map-notice"><Icon name={notice.icon} className="muted" />{notice.text}</div>}
 
       {showing && legend.length > 0 && (
         <div className="legend">

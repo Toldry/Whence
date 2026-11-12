@@ -47,11 +47,20 @@ export function mergeResponses(responses: InboundResponse[]): InboundResponse {
   };
 }
 
-/** Searches a query that may span several months, one request per month, in parallel. */
+/**
+ * Searches a query that may span several months, one request per month, in parallel.
+ * `onProgress` hears how many of the month requests have answered so far.
+ */
 export async function searchAcrossMonths(
   source: FareSource, query: InboundQuery, signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<InboundResponse> {
   const parts = monthQueries(query);
-  if (parts.length === 1) return source.searchInbound(parts[0], signal);
-  return mergeResponses(await Promise.all(parts.map(part => source.searchInbound(part, signal))));
+  let done = 0;
+  onProgress?.(0, parts.length);
+  const responses = await Promise.all(parts.map(part => source.searchInbound(part, signal).then(response => {
+    if (!signal?.aborted) onProgress?.(++done, parts.length);
+    return response;
+  })));
+  return responses.length === 1 ? responses[0] : mergeResponses(responses);
 }

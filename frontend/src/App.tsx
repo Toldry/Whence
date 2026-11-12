@@ -160,8 +160,10 @@ export function App() {
           store={store} rows={rows} status={status} sortKey={sortKey} ageNote={ageNoteWithSource}
           showStaleBanner={status.kind === 'rows' && medianAge >= STALE_LIST_HOURS}
           onRetry={search.retry} destinationPicks={destinationPicks} priceCaption={priceCaption}
+          progress={search.progress}
         />
-        <MapPanel store={store} rows={rows} status={status} legend={legend} priceCaption={priceCaption} />
+        <MapPanel store={store} rows={rows} status={status} legend={legend} priceCaption={priceCaption}
+          progress={search.progress} />
       </main>
 
       <div className="view-toggle" role="tablist" aria-label="View">

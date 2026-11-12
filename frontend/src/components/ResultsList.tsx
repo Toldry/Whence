@@ -3,6 +3,8 @@ import { formatAge, formatDay, formatDuration, formatMoney } from '../lib/format
 import { STALE_ROW_HOURS, type OriginRow, type SortKey } from '../lib/results';
 import type { Store } from '../state';
 import { TIERS } from '../theme';
+import type { SearchProgress } from '../lib/useInboundSearch';
+import { SearchProgressNote } from './SearchProgress';
 import { Dropdown, Icon, OptionList } from './ui';
 
 export const GROUND_MODE = {
@@ -28,7 +30,9 @@ export const SORT_LABELS: Record<SortKey, [string, string]> = {
   fresh: ['Freshest', 'Most recently found'],
 };
 
-export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBanner, onRetry, destinationPicks, priceCaption }: {
+export function ResultsList({
+  store, rows, status, sortKey, ageNote, showStaleBanner, onRetry, destinationPicks, priceCaption, progress,
+}: {
   store: Store;
   rows: OriginRow[];
   status: ListStatus;
@@ -38,6 +42,7 @@ export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBa
   onRetry(): void;
   destinationPicks: { label: string; pick(): void }[];
   priceCaption: string;
+  progress: SearchProgress | null;
 }) {
   const { state: s, set, togglePopover } = store;
   const listRef = useRef<HTMLDivElement>(null);
@@ -81,7 +86,9 @@ export function ResultsList({ store, rows, status, sortKey, ageNote, showStaleBa
                 value={sortKey} onPick={sort => set({ sort, popover: null })} />
             </Dropdown>
           </div>
-          <div className="age-note"><Icon name="history" size={16} />{ageNote}</div>
+          {status.kind === 'loading' && progress
+            ? <SearchProgressNote progress={progress} oneWay={s.trip === 'oneway'} />
+            : <div className="age-note"><Icon name="history" size={16} />{ageNote}</div>}
           {showStaleBanner && (
             <div className="banner-warning">
               <Icon name="warning" className="warning-icon" />

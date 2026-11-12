@@ -552,3 +552,35 @@ a.primary-button:hover { color: #fff; filter: brightness(.95); }
   .suggestion-skeleton, .suggestion-skeleton .skeleton-bar,
   .suggestion-skeleton .skeleton-dot { animation: none; }
 }
+
+/* Search progress: stage text, counts and a bar that fills as months answer. */
+.search-progress { display: flex; flex-direction: column; gap: 7px; }
+.search-progress-line { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-4); }
+.search-progress-stage { flex: 1; min-width: 0; color: var(--ink-3); }
+.search-progress-counts { flex: none; font-size: 12px; font-weight: 600; color: var(--ink-5); font-variant-numeric: tabular-nums; }
+.search-progress-track { position: relative; height: 4px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.search-progress-fill {
+  position: absolute; inset: 0; background: var(--accent); border-radius: inherit;
+  transform-origin: left center; transition: transform .25s linear;
+}
+.search-progress-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .55), transparent);
+  background-size: 50% 100%; background-repeat: no-repeat;
+  animation: search-progress-sheen 1.4s ease-in-out infinite;
+}
+@keyframes search-progress-sheen {
+  0% { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+.map-notice.has-progress { flex-direction: column; align-items: stretch; gap: 7px; padding: 9px 14px 10px; border-radius: 16px; }
+.map-notice-row { display: flex; align-items: center; gap: 8px; }
+.map-notice-row .search-progress-counts { margin-left: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .search-progress-fill { transition: none; }
+  .search-progress-fill::after { animation: none; }
+}
+@media (max-width: 560px) {
+  /* Keep the map pill within a phone screen; the list shows the counts too. */
+  .map-notice-row .search-progress-counts { display: none; }
+}

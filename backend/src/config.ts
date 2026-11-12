@@ -16,7 +16,9 @@ export interface AppConfig {
   /** Browser origins allowed by CORS; ["*"] allows any. */
   corsOrigins: string[];
   provider: 'mock' | 'travelpayouts';
-  travelpayouts: { token: string; marker?: string; markets: string[] | 'auto'; maxPages: number };
+  travelpayouts: {
+    token: string; marker?: string; markets: string[] | 'auto'; maxPages: number; searchBudgetMs: number;
+  };
   cache: { ttlMinutes: number; staleHours: number; maxEntries: number };
 }
 
@@ -45,6 +47,7 @@ export function loadConfig(env: EnvVars): AppConfig {
       marker: env.TRAVELPAYOUTS_MARKER || undefined,
       markets: markets === 'auto' || markets === '' ? 'auto' : markets.split(',').map((m) => m.trim()).filter(Boolean),
       maxPages: numberFrom(env.TRAVELPAYOUTS_MAX_PAGES, 2),
+      searchBudgetMs: numberFrom(env.SEARCH_BUDGET_MS, 20_000),
     },
     cache: {
       ttlMinutes: numberFrom(env.CACHE_TTL_MINUTES, 30),
